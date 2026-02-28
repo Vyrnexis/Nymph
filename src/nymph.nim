@@ -1,4 +1,4 @@
-import std/[os, terminal, math, strutils, strformat, random, sets, posix]
+import std/[os, terminal, math, strutils, strformat, random, sets, posix, json]
 import kitty_proto, nymph_settings
 
 type
@@ -7,6 +7,73 @@ type
     bytes: string
     width: int
     height: int
+
+  ThemePalette = object
+    rosewater: string
+    pink: string
+    mauve: string
+    maroon: string
+    yellow: string
+    green: string
+    sky: string
+    lavender: string
+    bold: string
+    reset: string
+
+  IconPack = object
+    os: string
+    kernel: string
+    pkgs: string
+    desktop: string
+    shell: string
+    uptime: string
+    memory: string
+    swatches: seq[string]
+
+  PackageSource = object
+    name: string
+    count: int
+
+  PackageSummary = object
+    total: int
+    sources: seq[PackageSource]
+
+  ModuleKind = enum
+    mkOS,
+    mkKernel,
+    mkDesktop,
+    mkPackages,
+    mkShell,
+    mkUptime,
+    mkMemory,
+    mkColours
+
+  CliOptions = object
+    logo: string
+    theme: string
+    iconPack: string
+    layout: string
+    modules: seq[string]
+    noColor: bool
+    jsonOutput: bool
+    doctor: bool
+    listThemes: bool
+    listIconPacks: bool
+    help: bool
+
+  SystemSnapshot = object
+    os: string
+    kernel: string
+    desktop: string
+    shell: string
+    uptime: string
+    memory: string
+    packages: PackageSummary
+
+  StatEntry = object
+    col: int
+    row: int
+    text: string
 
 const
   DefaultLogoName = "generic"
@@ -24,43 +91,239 @@ const
 
 """ & "\n"
 
-  icons = static: [" ", " ", " ", " ", "󰯉 ", " ", " ", "󰞦 ", "󰄊 ", "󱖿 ", " ", "󰌽 ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", "󰢚 ", "󰆚 ", "󰩃 ", "󱔐 ", "󱕘 ", "󱜿 ", "󰻀 ", "󰳆 ", "󱗂 "]
+  NerdSwatchIcons = ["", "", "", "", "󰯉", "", "", "󰞦", "󰄊", "󱖿", "", "󰌽", "", "", "", "", "", "", "", "", "", "", "", "󰢚", "󰆚", "󰩃", "󱔐", "󱕘", "󱜿", "󰻀", "󰳆", "󱗂"]
+  AsciiSwatchIcons = ["[]", "##", "++", "==", "**", "@@"]
 
   osReleasePath = "/etc/os-release"
-  versionFile =   "/proc/version"
-  uptimeFile =    "/proc/uptime"
-  meminfoPath =   "/proc/meminfo"
-  secsPerDay =    24 * 60 * 60
-  gibDivisor =    1024.0 * 1024.0
-  mibDivisor =    1024
-
-  icon = (
-    os:      " ", 
-    kernel:  " ", 
-    pkgs:    "󰏖 ", 
-    desktop: "󰇄 ", 
-    shell:   " ", 
-    uptime:  " ", 
-    memory:  "󰍛 "
-    )
-
-  col = (
-    rosewater: "\x1b[38;2;245;224;220m",
-    pink:      "\x1b[38;2;245;194;231m",
-    mauve:     "\x1b[38;2;203;166;247m",
-    maroon:    "\x1b[38;2;235;160;172m",
-    yellow:    "\x1b[38;2;249;226;175m",
-    green:     "\x1b[38;2;166;227;161m",
-    sky:       "\x1b[38;2;137;220;235m",
-    lavender:  "\x1b[38;2;180;190;254m",
-    bold:      "\x1b[1m",
-    reset:     "\x1b[0m",
-  )
+  versionFile = "/proc/version"
+  uptimeFile = "/proc/uptime"
+  meminfoPath = "/proc/meminfo"
+  secsPerDay = 24 * 60 * 60
+  gibDivisor = 1024.0 * 1024.0
+  mibDivisor = 1024
 
 var appConfig: RuntimeConfig = defaultConfig()
 var disableColor = false
 var metricsCached = false
 var cachedMetrics: tuple[cellWidth, cellHeight: float]
+var activeThemeName = "catppuccin"
+var activeLayoutName = "full"
+var activeIconPackName = "nerd"
+var activePalette = ThemePalette(
+  rosewater: "\x1b[38;2;245;224;220m",
+  pink: "\x1b[38;2;245;194;231m",
+  mauve: "\x1b[38;2;203;166;247m",
+  maroon: "\x1b[38;2;235;160;172m",
+  yellow: "\x1b[38;2;249;226;175m",
+  green: "\x1b[38;2;166;227;161m",
+  sky: "\x1b[38;2;137;220;235m",
+  lavender: "\x1b[38;2;180;190;254m",
+  bold: "\x1b[1m",
+  reset: "\x1b[0m"
+)
+var activeIcons = IconPack(
+  os: "",
+  kernel: "",
+  pkgs: "󰏖",
+  desktop: "󰇄",
+  shell: "",
+  uptime: "",
+  memory: "󰍛",
+  swatches: @NerdSwatchIcons
+)
+
+proc parseCsv(raw: string): seq[string] =
+  for item in raw.split(','):
+    let value = item.strip().toLowerAscii()
+    if value.len > 0:
+      result.add value
+
+
+proc moduleName(moduleKind: ModuleKind): string =
+  case moduleKind
+  of mkOS: "os"
+  of mkKernel: "kernel"
+  of mkDesktop: "desktop"
+  of mkPackages: "packages"
+  of mkShell: "shell"
+  of mkUptime: "uptime"
+  of mkMemory: "memory"
+  of mkColours: "colours"
+
+
+proc parseModule(name: string; moduleKind: var ModuleKind): bool =
+  case name.strip().toLowerAscii()
+  of "os":
+    moduleKind = mkOS
+    true
+  of "kernel":
+    moduleKind = mkKernel
+    true
+  of "desktop", "de", "wm", "dewm":
+    moduleKind = mkDesktop
+    true
+  of "packages", "package", "pkgs":
+    moduleKind = mkPackages
+    true
+  of "shell":
+    moduleKind = mkShell
+    true
+  of "uptime":
+    moduleKind = mkUptime
+    true
+  of "memory", "mem":
+    moduleKind = mkMemory
+    true
+  of "colours", "colors", "palette":
+    moduleKind = mkColours
+    true
+  else:
+    false
+
+
+proc normalizeLayoutName(name: string): string =
+  case name.strip().toLowerAscii()
+  of "compact": "compact"
+  of "minimal": "minimal"
+  else: "full"
+
+
+proc defaultModules(layout: string): seq[ModuleKind] =
+  case normalizeLayoutName(layout)
+  of "minimal":
+    @[mkOS, mkKernel, mkPackages, mkMemory]
+  of "compact":
+    @[mkOS, mkKernel, mkDesktop, mkPackages, mkMemory, mkUptime]
+  else:
+    @[mkOS, mkKernel, mkDesktop, mkPackages, mkShell, mkUptime, mkMemory, mkColours]
+
+
+proc resolveModules(layout: string; names: seq[string]): seq[ModuleKind] =
+  if names.len == 0:
+    return defaultModules(layout)
+
+  var seen = initHashSet[ModuleKind]()
+  for raw in names:
+    var moduleKind: ModuleKind
+    if parseModule(raw, moduleKind) and not seen.contains(moduleKind):
+      seen.incl(moduleKind)
+      result.add moduleKind
+
+  if result.len == 0:
+    return defaultModules(layout)
+
+
+proc modulesAsNames(modules: seq[ModuleKind]): seq[string] =
+  for moduleKind in modules:
+    result.add moduleName(moduleKind)
+
+
+proc normalizeThemeName(name: string): string =
+  case name.strip().toLowerAscii()
+  of "nord": "nord"
+  of "gruvbox": "gruvbox"
+  of "plain": "plain"
+  else: "catppuccin"
+
+
+proc resolveTheme(name: string): ThemePalette =
+  case normalizeThemeName(name)
+  of "nord":
+    ThemePalette(
+      rosewater: "\x1b[38;2;216;222;233m",
+      pink: "\x1b[38;2;180;142;173m",
+      mauve: "\x1b[38;2;143;188;187m",
+      maroon: "\x1b[38;2;191;97;106m",
+      yellow: "\x1b[38;2;235;203;139m",
+      green: "\x1b[38;2;163;190;140m",
+      sky: "\x1b[38;2;136;192;208m",
+      lavender: "\x1b[38;2;129;161;193m",
+      bold: "\x1b[1m",
+      reset: "\x1b[0m"
+    )
+  of "gruvbox":
+    ThemePalette(
+      rosewater: "\x1b[38;2;251;241;199m",
+      pink: "\x1b[38;2;211;134;155m",
+      mauve: "\x1b[38;2;184;187;38m",
+      maroon: "\x1b[38;2;251;73;52m",
+      yellow: "\x1b[38;2;250;189;47m",
+      green: "\x1b[38;2;184;187;38m",
+      sky: "\x1b[38;2;131;165;152m",
+      lavender: "\x1b[38;2;142;192;124m",
+      bold: "\x1b[1m",
+      reset: "\x1b[0m"
+    )
+  of "plain":
+    ThemePalette(
+      rosewater: "",
+      pink: "",
+      mauve: "",
+      maroon: "",
+      yellow: "",
+      green: "",
+      sky: "",
+      lavender: "",
+      bold: "",
+      reset: ""
+    )
+  else:
+    ThemePalette(
+      rosewater: "\x1b[38;2;245;224;220m",
+      pink: "\x1b[38;2;245;194;231m",
+      mauve: "\x1b[38;2;203;166;247m",
+      maroon: "\x1b[38;2;235;160;172m",
+      yellow: "\x1b[38;2;249;226;175m",
+      green: "\x1b[38;2;166;227;161m",
+      sky: "\x1b[38;2;137;220;235m",
+      lavender: "\x1b[38;2;180;190;254m",
+      bold: "\x1b[1m",
+      reset: "\x1b[0m"
+    )
+
+
+proc normalizeIconPackName(name: string): string =
+  case name.strip().toLowerAscii()
+  of "ascii": "ascii"
+  of "mono": "mono"
+  else: "nerd"
+
+
+proc resolveIconPack(name: string): IconPack =
+  case normalizeIconPackName(name)
+  of "ascii":
+    IconPack(
+      os: "OS",
+      kernel: "KR",
+      pkgs: "PK",
+      desktop: "DE",
+      shell: "SH",
+      uptime: "UP",
+      memory: "MM",
+      swatches: @AsciiSwatchIcons
+    )
+  of "mono":
+    IconPack(
+      os: "#",
+      kernel: "#",
+      pkgs: "#",
+      desktop: "#",
+      shell: "#",
+      uptime: "#",
+      memory: "#",
+      swatches: @["##", "##", "##"]
+    )
+  else:
+    IconPack(
+      os: "",
+      kernel: "",
+      pkgs: "󰏖",
+      desktop: "󰇄",
+      shell: "",
+      uptime: "",
+      memory: "󰍛",
+      swatches: @NerdSwatchIcons
+    )
 
 
 proc getLogoSearchDirs(): seq[string] =
@@ -92,6 +355,10 @@ proc getLogoSearchDirs(): seq[string] =
     if dir.len > 0 and not seen.contains(dir):
       seen.incl(dir)
       result.add dir
+    let sharedDir = normalizeDir(appDir / ".." / "share" / "nymph" / "logos")
+    if sharedDir.len > 0 and not seen.contains(sharedDir):
+      seen.incl(sharedDir)
+      result.add sharedDir
 
 
 proc locateLogoFile(name, ext: string): string =
@@ -99,14 +366,17 @@ proc locateLogoFile(name, ext: string): string =
   let fileName = name.toLowerAscii() & ext
   for dir in getLogoSearchDirs():
     let path = dir / fileName
-    if fileExists(path): return path
+    if fileExists(path):
+      return path
   ""
 
 
 proc parsePngDims(data: string): (int, int) =
   ## Read the PNG IHDR chunk to extract width/height.
-  if data.len < 24: return (0, 0)
-  if not data.startsWith("\x89PNG\x0d\x0a\x1a\x0a"): return (0, 0)
+  if data.len < 24:
+    return (0, 0)
+  if not data.startsWith("\x89PNG\x0d\x0a\x1a\x0a"):
+    return (0, 0)
   let w = (ord(data[16]) shl 24) or (ord(data[17]) shl 16) or (ord(data[18]) shl 8) or ord(data[19])
   let h = (ord(data[20]) shl 24) or (ord(data[21]) shl 16) or (ord(data[22]) shl 8) or ord(data[23])
   (w, h)
@@ -115,12 +385,15 @@ proc parsePngDims(data: string): (int, int) =
 proc loadLogo(name: string): LogoData =
   ## Load PNG bytes and dimensions for the given logo name.
   let path = locateLogoFile(name, ".png")
-  if path.len == 0: return
+  if path.len == 0:
+    return
   try:
     let raw = readFile(path)
-    if raw.len == 0: return
+    if raw.len == 0:
+      return
     let (w, h) = parsePngDims(raw)
-    if w <= 0 or h <= 0: return
+    if w <= 0 or h <= 0:
+      return
     result.bytes = raw
     result.width = w
     result.height = h
@@ -131,12 +404,15 @@ proc loadLogo(name: string): LogoData =
 proc loadLogoFromPath(path: string): LogoData =
   ## Load a PNG from an explicit path.
   let norm = normalizeDir(path)
-  if norm.len == 0 or not fileExists(norm): return
+  if norm.len == 0 or not fileExists(norm):
+    return
   try:
     let raw = readFile(norm)
-    if raw.len == 0: return
+    if raw.len == 0:
+      return
     let (w, h) = parsePngDims(raw)
-    if w <= 0 or h <= 0: return
+    if w <= 0 or h <= 0:
+      return
     result.bytes = raw
     result.width = w
     result.height = h
@@ -153,6 +429,7 @@ when defined(posix):
       ws_ypixel: cushort
 
   const ioctlWinSize = culong(0x5413)
+
 
 proc getWindowPixels(): tuple[width, height: int] =
   ## Query the terminal window size in pixels (falls back to 0s).
@@ -182,13 +459,15 @@ proc getCellMetrics(): tuple[cellWidth, cellHeight: float] =
   metricsCached = true
   cachedMetrics
 
+
 proc collectAvailableLogos(): seq[string] =
   ## Enumerate unique logo names detected across all search paths.
   var seen = initHashSet[string]()
   for dir in getLogoSearchDirs():
     try:
       for kind, path in walkDir(dir):
-        if kind != pcFile: continue
+        if kind != pcFile:
+          continue
         let ext = path.splitFile.ext.toLowerAscii()
         if ext == ".png":
           let name = path.splitFile.name.toLowerAscii()
@@ -237,19 +516,51 @@ proc findBestLogoMatch(candidates: seq[string]): string =
   available[0]
 
 
-proc parseCliOptions(): tuple[logo: string, noColor: bool] =
-  ## Parse minimal CLI flags: logo override and --no-color toggle.
+proc parseCliOptions(): CliOptions =
+  ## Parse command-line flags.
   let params = commandLineParams()
+
+  proc pullNext(idx: var int): string =
+    if idx + 1 < params.len:
+      inc idx
+      return params[idx]
+    ""
+
   var i = 0
   while i < params.len:
     let param = params[i]
     if param.startsWith("--logo=") or param.startsWith("-logo="):
       result.logo = param.split('=', 1)[1]
     elif param == "--logo" or param == "-logo":
-      if i + 1 < params.len:
-        result.logo = params[i + 1]
+      result.logo = pullNext(i)
     elif param == "--no-color" or param == "--no-colors":
       result.noColor = true
+    elif param == "--json":
+      result.jsonOutput = true
+    elif param == "--doctor":
+      result.doctor = true
+    elif param == "--list-themes":
+      result.listThemes = true
+    elif param == "--list-icon-packs":
+      result.listIconPacks = true
+    elif param == "--help" or param == "-h":
+      result.help = true
+    elif param.startsWith("--theme="):
+      result.theme = param.split('=', 1)[1]
+    elif param == "--theme":
+      result.theme = pullNext(i)
+    elif param.startsWith("--icon-pack=") or param.startsWith("--iconpack="):
+      result.iconPack = param.split('=', 1)[1]
+    elif param == "--icon-pack" or param == "--iconpack":
+      result.iconPack = pullNext(i)
+    elif param.startsWith("--layout="):
+      result.layout = param.split('=', 1)[1]
+    elif param == "--layout":
+      result.layout = pullNext(i)
+    elif param.startsWith("--modules="):
+      result.modules = parseCsv(param.split('=', 1)[1])
+    elif param == "--modules":
+      result.modules = parseCsv(pullNext(i))
     inc i
 
 
@@ -281,13 +592,16 @@ proc detectLogoName(cliLogo: string): string =
       elif line.startsWith("NAME="):
         nameValue = line.split('=', 1)[1].strip(chars = {'"', '\''})
 
-    if idValue.len > 0: candidates.add idValue
-    for v in idLikeValues: candidates.add v
-    if nameValue.len > 0: candidates.add nameValue
-    if pretty.len > 0: candidates.add pretty
+    if idValue.len > 0:
+      candidates.add idValue
+    for v in idLikeValues:
+      candidates.add v
+    if nameValue.len > 0:
+      candidates.add nameValue
+    if pretty.len > 0:
+      candidates.add pretty
 
   candidates.add DefaultLogoName
-
   findBestLogoMatch(candidates)
 
 
@@ -317,46 +631,106 @@ proc getKernel(): string {.inline.} =
   "Unknown Kernel Version"
 
 
-proc getPackages(): int {.inline.} =
-  ## Naive package-count heuristic: checks common package manager dirs.
-  let packageDirs = [
-    "/var/lib/pacman/local",       # Pacman (Arch, Manjaro)
-    "/var/lib/eopkg/package",      # Eopkg (Solus)
-    "/var/lib/flatpak/app",        # Flatpak
-    "/var/db/pkg",                 # Portage (Gentoo)
-    "/var/db/xbps",                # XBPS (Void Linux)
-    "/usr/local/opt",              # Homebrew (macOS)
-    "/var/lib/portage/world",      # Portage (Gentoo alternative location)
-    "/var/lib/apk/db",             # APK (Alpine Linux)
-    "/var/lib/guix"                # Guix System
-  ]
-  
-  for dir in packageDirs:
-    if dirExists(dir):
-      var count = 0
-      for kind, path in walkDir(dir):
-        if kind == pcDir: 
-          count.inc
-      
-      if count > 0:
-        result = count
-        return result
-  
-  let aptStatusFile = "/var/lib/dpkg/status"
-  if fileExists(aptStatusFile):
-    var seenPkg = false
-    for line in lines(aptStatusFile):
+proc countDirs(path: string): int =
+  if not dirExists(path):
+    return 0
+  try:
+    for kind, _ in walkDir(path):
+      if kind == pcDir:
+        inc result
+  except OSError:
+    discard
+
+
+proc countDpkgInstalled(path: string): int =
+  if not fileExists(path):
+    return 0
+  var seenPkg = false
+  try:
+    for line in lines(path):
       if line.startsWith("Package:"):
         seenPkg = true
       elif line.startsWith("Status:") and seenPkg:
         if "install ok installed" in line:
-          result.inc
+          inc result
         seenPkg = false
       elif line.len == 0:
         seenPkg = false
-    return result
-  
-  return 0
+  except IOError:
+    return 0
+
+
+proc countApkInstalled(paths: openArray[string]): int =
+  for path in paths:
+    if not fileExists(path):
+      continue
+    var count = 0
+    try:
+      for line in lines(path):
+        if line.startsWith("P:"):
+          inc count
+    except IOError:
+      count = 0
+    if count > 0:
+      return count
+  0
+
+
+proc countSnapInstalled(path: string): int =
+  if not dirExists(path):
+    return 0
+  try:
+    for kind, item in walkDir(path):
+      if kind == pcFile and item.endsWith(".snap"):
+        inc result
+  except OSError:
+    discard
+
+
+proc addPackageSource(summary: var PackageSummary; name: string; count: int) =
+  if count <= 0:
+    return
+  summary.sources.add PackageSource(name: name, count: count)
+  summary.total += count
+
+
+proc detectPackageSummary(): PackageSummary =
+  addPackageSource(result, "pacman", countDirs("/var/lib/pacman/local"))
+  addPackageSource(result, "dpkg", countDpkgInstalled("/var/lib/dpkg/status"))
+  addPackageSource(result, "apk", countApkInstalled(["/lib/apk/db/installed", "/var/lib/apk/db/installed"]))
+
+  let flatpakSystem = countDirs("/var/lib/flatpak/app")
+  let flatpakUser = countDirs(normalizeDir(getHomeDir() / ".local" / "share" / "flatpak" / "app"))
+  addPackageSource(result, "flatpak", flatpakSystem + flatpakUser)
+
+  addPackageSource(result, "snap", countSnapInstalled("/var/lib/snapd/snaps"))
+  addPackageSource(result, "portage", countDirs("/var/db/pkg"))
+  addPackageSource(result, "eopkg", countDirs("/var/lib/eopkg/package"))
+  addPackageSource(result, "xbps", countDirs("/var/db/xbps"))
+  addPackageSource(result, "homebrew", countDirs("/usr/local/opt"))
+
+
+proc formatPackageSummary(summary: PackageSummary): string =
+  if summary.total <= 0:
+    return "0"
+  if summary.sources.len == 1:
+    return fmt"{summary.total} ({summary.sources[0].name})"
+
+  var parts: seq[string] = @[]
+  for source in summary.sources:
+    parts.add(source.name & " " & $source.count)
+  let details = parts.join(" + ")
+  fmt"{summary.total} ({details})"
+
+
+proc packageSummaryJson(summary: PackageSummary): JsonNode =
+  var sourcesNode = newJObject()
+  for source in summary.sources:
+    sourcesNode[source.name] = %source.count
+
+  result = newJObject()
+  result["total"] = %summary.total
+  result["sources"] = sourcesNode
 
 
 proc getShell(): string {.inline.} =
@@ -382,10 +756,13 @@ proc getShell(): string {.inline.} =
 
 
 proc getUptime(): string =
-  ## Format /proc/uptime into “X days, HH:MM:SS”.
+  ## Format /proc/uptime into "X days, HH:MM:SS".
   var uptime: float
   try:
-    uptime = parseFloat(readFile(uptimeFile).split()[0])
+    let parts = readFile(uptimeFile).splitWhitespace()
+    if parts.len == 0:
+      return "Unable to read uptime"
+    uptime = parseFloat(parts[0])
   except IOError, ValueError:
     return "Unable to read uptime"
 
@@ -401,30 +778,48 @@ proc getUptime(): string =
 
 proc getMemory(): string =
   ## Compute used memory using the htop formula (total - free/buffers/cached).
-  var 
-    memTotal, memFree, buffers, cached, shmem, sreclaimable: int
-  
+  var memTotal, memFree, buffers, cached, shmem, sreclaimable: int
+
+  proc parseMemField(value: string): int =
+    let fields = value.strip().splitWhitespace()
+    if fields.len == 0:
+      return 0
+    try:
+      fields[0].parseInt()
+    except ValueError:
+      0
+
   if fileExists(meminfoPath):
     for line in lines(meminfoPath):
       let parts = line.split(":")
-      if parts.len != 2: continue
-      
+      if parts.len != 2:
+        continue
+
       case parts[0].strip()
-      of "MemTotal": memTotal = parts[1].strip().split()[0].parseInt()
-      of "MemFree": memFree = parts[1].strip().split()[0].parseInt()
-      of "Buffers": buffers = parts[1].strip().split()[0].parseInt()
-      of "Cached": cached = parts[1].strip().split()[0].parseInt()
-      of "Shmem": shmem = parts[1].strip().split()[0].parseInt()
-      of "SReclaimable": sreclaimable = parts[1].strip().split()[0].parseInt()
-  
-  let usedMem = memTotal - (memFree + buffers + cached) + (shmem - sreclaimable)
-  
+      of "MemTotal":
+        memTotal = parseMemField(parts[1])
+      of "MemFree":
+        memFree = parseMemField(parts[1])
+      of "Buffers":
+        buffers = parseMemField(parts[1])
+      of "Cached":
+        cached = parseMemField(parts[1])
+      of "Shmem":
+        shmem = parseMemField(parts[1])
+      of "SReclaimable":
+        sreclaimable = parseMemField(parts[1])
+      else:
+        discard
+
+  if memTotal <= 0:
+    return "Unknown memory"
+
+  let usedMem = max(0, memTotal - (memFree + buffers + cached) + (shmem - sreclaimable))
   if usedMem >= 1048576:
     return fmt"{usedMem.float / gibDivisor:0.2f}GiB / {memTotal.float / gibDivisor:0.2f}GiB"
-  else:
-    return fmt"{usedMem div mibDivisor}MiB / {memTotal div mibDivisor}MiB"
+  fmt"{usedMem div mibDivisor}MiB / {memTotal div mibDivisor}MiB"
 
-  
+
 proc getDE(): string =
   ## Try common desktop environment variables, fallback to WM name.
   result = getEnv("XDG_CURRENT_DESKTOP")
@@ -438,32 +833,63 @@ proc getDE(): string =
       result = wmName.splitPath().tail
   if result == "":
     result = "Unknown"
-    
 
-proc getColours(): string {.inline.} =
-  ## Print a sequence of colored icons to mimic fetch “color blocks”.
-  let randIcon = icons[rand(icons.high)]
-  fmt"{col.rosewater}{randIcon} {col.mauve}{randIcon} {col.pink}{randIcon} {col.maroon}{randIcon} {col.sky}{randIcon} {col.green}{randIcon} {col.lavender}{randIcon} "
 
-type StatEntry = object
-  ## Describes where to print each stat line and how to obtain its value.
-  col: int
-  row: int
-  formatter: string
-  getter: proc(): string {.closure.}
+proc collectSnapshot(): SystemSnapshot =
+  result.os = getOS()
+  result.kernel = getKernel()
+  result.desktop = getDE()
+  result.shell = getShell()
+  result.uptime = getUptime()
+  result.memory = getMemory()
+  result.packages = detectPackageSummary()
 
-proc statsEntries(statsCol: int): seq[StatEntry] =
-  ## Build the ordered list of stats rows with their value suppliers.
-  result = @[
-    StatEntry(col: statsCol, row: 1, formatter: fmt"{col.rosewater}{icon.os}  {col.yellow}{col.bold}OS:{col.reset}      $#", getter: proc(): string = getOS()),
-    StatEntry(col: statsCol, row: 2, formatter: fmt"{col.pink}{icon.kernel}  {col.yellow}{col.bold}Kernel:{col.reset}  $#", getter: proc(): string = getKernel()),
-    StatEntry(col: statsCol, row: 3, formatter: fmt"{col.mauve}{icon.desktop}  {col.yellow}{col.bold}DE/WM:{col.reset}   $#", getter: proc(): string = getDE()),
-    StatEntry(col: statsCol, row: 4, formatter: fmt"{col.maroon}{icon.pkgs}  {col.yellow}{col.bold}Pkgs:{col.reset}    $#", getter: proc(): string = $getPackages()),
-    StatEntry(col: statsCol, row: 5, formatter: fmt"{col.sky}{icon.shell}  {col.yellow}{col.bold}Shell:{col.reset}   $#", getter: proc(): string = getShell()),
-    StatEntry(col: statsCol, row: 6, formatter: fmt"{col.green}{icon.uptime}  {col.yellow}{col.bold}Uptime:{col.reset}  $#", getter: proc(): string = getUptime()),
-    StatEntry(col: statsCol, row: 7, formatter: fmt"{col.lavender}{icon.memory}  {col.yellow}{col.bold}Memory:{col.reset}  $#", getter: proc(): string = getMemory()),
-    StatEntry(col: statsCol, row: 8, formatter: fmt"       $#{col.reset}", getter: proc(): string = getColours())
-  ]
+
+proc coloursLine(): string =
+  ## Print a sequence of themed swatches.
+  let token = if activeIcons.swatches.len > 0: activeIcons.swatches[rand(activeIcons.swatches.high)] else: "##"
+  let palette = [activePalette.rosewater, activePalette.mauve, activePalette.pink, activePalette.maroon, activePalette.sky, activePalette.green, activePalette.lavender]
+
+  for idx, color in palette.pairs:
+    if disableColor or color.len == 0:
+      result.add token
+    else:
+      result.add color & token
+    if idx < palette.high:
+      result.add " "
+
+  if not disableColor and activePalette.reset.len > 0:
+    result.add activePalette.reset
+
+
+proc statLine(accent, iconValue, label, value: string): string =
+  fmt"{accent}{iconValue}  {activePalette.yellow}{activePalette.bold}{label}:{activePalette.reset}  {value}"
+
+
+proc buildStatsEntries(statsCol: int; snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[StatEntry] =
+  var row = 1
+  for moduleKind in modules:
+    var line = ""
+    case moduleKind
+    of mkOS:
+      line = statLine(activePalette.rosewater, activeIcons.os, "OS", snapshot.os)
+    of mkKernel:
+      line = statLine(activePalette.pink, activeIcons.kernel, "Kernel", snapshot.kernel)
+    of mkDesktop:
+      line = statLine(activePalette.mauve, activeIcons.desktop, "DE/WM", snapshot.desktop)
+    of mkPackages:
+      line = statLine(activePalette.maroon, activeIcons.pkgs, "Pkgs", formatPackageSummary(snapshot.packages))
+    of mkShell:
+      line = statLine(activePalette.sky, activeIcons.shell, "Shell", snapshot.shell)
+    of mkUptime:
+      line = statLine(activePalette.green, activeIcons.uptime, "Uptime", snapshot.uptime)
+    of mkMemory:
+      line = statLine(activePalette.lavender, activeIcons.memory, "Memory", snapshot.memory)
+    of mkColours:
+      line = "       " & coloursLine()
+
+    result.add StatEntry(col: statsCol, row: row, text: line)
+    inc row
 
 
 proc computeLogoCells(logo: LogoData): tuple[cols, rows: int] =
@@ -476,18 +902,20 @@ proc computeLogoCells(logo: LogoData): tuple[cols, rows: int] =
   let targetHeight = logo.height.float * scale
   var cols = max(1, int(ceil(targetWidth.float / cw)))
   var rows = max(1, int(ceil(targetHeight / ch)))
-  # Keep the logo from consuming the entire viewport; if too wide, scale down.
+
   let maxCols = max(1, terminalWidth())
   let maxRows = max(1, terminalHeight())
-  let halfCols = max(1, maxCols div 2) # limit to half the screen width
+  let halfCols = max(1, maxCols div 2)
   if cols > halfCols:
     let scaleDown = halfCols.float / cols.float
     cols = halfCols
     rows = max(1, int(ceil(rows.float * scaleDown)))
   elif cols >= maxCols:
-    cols = maxCols - 1
+    cols = max(1, maxCols - 1)
+
   if rows >= maxRows:
-    rows = maxRows - 1
+    rows = max(1, maxRows - 1)
+
   (cols, rows)
 
 
@@ -495,7 +923,7 @@ proc computeStatsOffset(): int =
   ## Derive a stats start column based on logo width and cell metrics.
   let metrics = getCellMetrics()
   let cw = max(1.0, metrics.cellWidth)
-  let colsFromLogo = int(ceil(appConfig.maxLogoWidth.float / cw)) + 2 # padding
+  let colsFromLogo = int(ceil(appConfig.maxLogoWidth.float / cw)) + 2
   let base = max(appConfig.statsOffset, colsFromLogo)
   let maxCols = max(1, terminalWidth())
   min(base, maxCols div 2 + 2)
@@ -503,56 +931,218 @@ proc computeStatsOffset(): int =
 
 proc stripAnsi(text: string): string =
   ## Remove ANSI escape sequences for --no-color output.
+  proc isAnsiFinalByte(ch: char): bool {.inline.} =
+    ch >= '@' and ch <= '~'
+
   var i = 0
   while i < text.len:
-    if text[i] == '\x1b' and i + 1 < text.len and text[i + 1] == '[':
-      var j = i + 2
-      while j < text.len and text[j] notin {'m', '\\'}:
-        inc j
-      if j < text.len:
-        i = j + 1
+    if text[i] == '\x1b' and i + 1 < text.len:
+      let marker = text[i + 1]
+      if marker == '[':
+        var j = i + 2
+        while j < text.len and not isAnsiFinalByte(text[j]):
+          inc j
+        if j < text.len:
+          i = j + 1
+          continue
+      elif marker == ']':
+        var j = i + 2
+        var consumed = false
+        while j < text.len:
+          if text[j] == '\x07':
+            i = j + 1
+            consumed = true
+            break
+          if text[j] == '\x1b' and j + 1 < text.len and text[j + 1] == '\\':
+            i = j + 2
+            consumed = true
+            break
+          inc j
+        if consumed:
+          continue
+      else:
+        i += 2
         continue
     result.add(text[i])
     inc i
 
 
+proc resolveLogo(logoOverride: string): tuple[logo: LogoData, name: string, path: string] =
+  var overridePath = ""
+  if logoOverride.len > 0:
+    let candidatePath = normalizeDir(logoOverride)
+    if fileExists(candidatePath):
+      overridePath = candidatePath
+
+  if overridePath.len > 0:
+    result.logo = loadLogoFromPath(overridePath)
+    result.path = overridePath
+    result.name = overridePath.splitFile.name.toLowerAscii()
+
+  if result.logo.bytes.len == 0 and appConfig.customLogoFile.len > 0:
+    let customPath = normalizeDir(appConfig.customLogoFile)
+    result.logo = loadLogoFromPath(customPath)
+    if result.logo.bytes.len > 0:
+      result.path = customPath
+      result.name = customPath.splitFile.name.toLowerAscii()
+
+  let detectedLogoName = detectLogoName(if overridePath.len == 0: logoOverride else: "")
+  if result.logo.bytes.len == 0:
+    result.logo = loadLogo(detectedLogoName)
+    if result.logo.bytes.len > 0:
+      result.name = detectedLogoName
+      result.path = locateLogoFile(detectedLogoName, ".png")
+
+  if result.logo.bytes.len == 0:
+    result.logo = loadLogo(DefaultLogoName)
+    if result.logo.bytes.len > 0:
+      result.name = DefaultLogoName
+      result.path = locateLogoFile(DefaultLogoName, ".png")
+
+  if result.name.len == 0:
+    result.name = DefaultLogoName
+
+
+proc printHelp() =
+  echo "Nymph - lightweight system summary"
+  echo ""
+  echo "Usage: nymph [options]"
+  echo "  --logo <name|path>        Override logo by name or PNG path"
+  echo "  --no-color                Disable ANSI colors"
+  echo "  --json                    Print machine-readable JSON"
+  echo "  --doctor                  Print diagnostics and exit"
+  echo "  --theme <name>            Theme: catppuccin, nord, gruvbox, plain"
+  echo "  --icon-pack <name>        Icon pack: nerd, ascii, mono"
+  echo "  --layout <name>           Layout: full, compact, minimal"
+  echo "  --modules <csv>           Explicit modules (os,kernel,packages,...)"
+  echo "  --list-themes             List built-in themes"
+  echo "  --list-icon-packs         List built-in icon packs"
+  echo "  -h, --help                Show this help"
+
+
+proc printThemeList() =
+  echo "Themes: catppuccin, nord, gruvbox, plain"
+
+
+proc printIconPackList() =
+  echo "Icon packs: nerd, ascii, mono"
+
+
+proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; kittyCapable: bool; jsonEnabled: bool) =
+  echo "Nymph doctor"
+  echo "config.path: " & (if appConfig.loadedConfigPath.len > 0: appConfig.loadedConfigPath else: "(none)")
+  echo "config.theme: " & appConfig.theme
+  echo "config.iconpack: " & appConfig.iconPack
+  echo "config.layout: " & appConfig.layout
+  echo "runtime.theme: " & activeThemeName
+  echo "runtime.iconpack: " & activeIconPackName
+  echo "runtime.layout: " & activeLayoutName
+  echo "runtime.modules: " & modulesAsNames(modules).join(",")
+  echo "runtime.nocolor: " & $disableColor
+  echo "runtime.json: " & $jsonEnabled
+  echo "terminal.kittyGraphics: " & $kittyCapable
+  echo "terminal.TERM: " & getEnv("TERM")
+  echo "terminal.TERM_PROGRAM: " & getEnv("TERM_PROGRAM")
+  echo "terminal.TERMINAL_EMULATOR: " & getEnv("TERMINAL_EMULATOR")
+  echo "logo.selected: " & logoInfo.name
+  echo "logo.path: " & (if logoInfo.path.len > 0: logoInfo.path else: "(ascii fallback)")
+  if logoInfo.logo.bytes.len > 0:
+    echo fmt"logo.dimensions: {logoInfo.logo.width}x{logoInfo.logo.height}"
+  else:
+    echo "logo.dimensions: (none)"
+  echo "logo.searchDirs:"
+  for dir in getLogoSearchDirs():
+    echo "  - " & dir
+  echo "packages: " & formatPackageSummary(snapshot.packages)
+
+
+proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; kittyCapable: bool) =
+  var root = newJObject()
+  root["os"] = %snapshot.os
+  root["kernel"] = %snapshot.kernel
+  root["desktop"] = %snapshot.desktop
+  root["shell"] = %snapshot.shell
+  root["uptime"] = %snapshot.uptime
+  root["memory"] = %snapshot.memory
+  root["packages"] = packageSummaryJson(snapshot.packages)
+  root["theme"] = %activeThemeName
+  root["icon_pack"] = %activeIconPackName
+  root["layout"] = %activeLayoutName
+  root["modules"] = %modulesAsNames(modules)
+  root["no_color"] = %disableColor
+  root["kitty_graphics"] = %kittyCapable
+
+  var logoNode = newJObject()
+  logoNode["name"] = %logoInfo.name
+  logoNode["path"] = %(if logoInfo.path.len > 0: logoInfo.path else: "")
+  logoNode["width"] = %logoInfo.logo.width
+  logoNode["height"] = %logoInfo.logo.height
+  logoNode["ascii_fallback"] = % (logoInfo.logo.bytes.len == 0)
+  root["logo"] = logoNode
+
+  echo root.pretty()
+
+
 when isMainModule:
   randomize()
-  stdout.eraseScreen()
 
   appConfig = loadConfig()
   let cli = parseCliOptions()
-  if cli.noColor or appConfig.noColor:
-    disableColor = true
-  let logoOverride = cli.logo
 
-  # Resolve logo name and load PNG bytes/dimensions if possible.
-  var logo: LogoData
-  let overridePath = normalizeDir(logoOverride)
-  if overridePath.len > 0 and fileExists(overridePath):
-    logo = loadLogoFromPath(overridePath)
-  elif appConfig.customLogoFile.len > 0:
-    logo = loadLogoFromPath(appConfig.customLogoFile)
+  if cli.help:
+    printHelp()
+    quit(0)
+  if cli.listThemes:
+    printThemeList()
+    quit(0)
+  if cli.listIconPacks:
+    printIconPackList()
+    quit(0)
+
+  activeThemeName = normalizeThemeName(if cli.theme.len > 0: cli.theme else: appConfig.theme)
+  activePalette = resolveTheme(activeThemeName)
+
+  activeIconPackName = normalizeIconPackName(if cli.iconPack.len > 0: cli.iconPack else: appConfig.iconPack)
+  activeIcons = resolveIconPack(activeIconPackName)
+
+  activeLayoutName = normalizeLayoutName(if cli.layout.len > 0: cli.layout else: appConfig.layout)
+
+  var requestedModules: seq[string] = @[]
+  if cli.modules.len > 0:
+    requestedModules = cli.modules
+  elif appConfig.modules.len > 0:
+    requestedModules = appConfig.modules
+  let modules = resolveModules(activeLayoutName, requestedModules)
+
+  disableColor = cli.noColor or appConfig.noColor or activeThemeName == "plain"
+  let jsonEnabled = cli.jsonOutput or appConfig.jsonOutput
+
+  let logoOverride = cli.logo.strip()
+  let logoInfo = resolveLogo(logoOverride)
   let kittyCapable = supportsKittyGraphics()
-  let detectedLogoName = detectLogoName(if overridePath.len == 0: logoOverride else: "")
-  if logo.bytes.len == 0:
-    logo = loadLogo(detectedLogoName)
-  if logo.bytes.len == 0:
-    logo = loadLogo(DefaultLogoName)
+  let snapshot = collectSnapshot()
 
-  if kittyCapable and logo.bytes.len > 0:
+  if cli.doctor:
+    doctorOutput(snapshot, modules, logoInfo, kittyCapable, jsonEnabled)
+    quit(0)
+
+  if jsonEnabled:
+    outputJson(snapshot, modules, logoInfo, kittyCapable)
+    quit(0)
+
+  stdout.eraseScreen()
+  if kittyCapable and logoInfo.logo.bytes.len > 0:
     stdout.setCursorPos(1, 1)
-    let placement = computeLogoCells(logo)
-    displayKittyGraphics(logo.bytes, placement.cols, placement.rows)
+    let placement = computeLogoCells(logoInfo.logo)
+    displayKittyGraphics(logoInfo.logo.bytes, placement.cols, placement.rows)
   else:
     stdout.setCursorPos(1, 1)
     stdout.write(AsciiFallbackLogo)
 
   let statsCol = computeStatsOffset()
-  # Render stats block next to the logo.
-  for entry in statsEntries(statsCol):
+  for entry in buildStatsEntries(statsCol, snapshot, modules):
     stdout.setCursorPos(entry.col, entry.row)
-    let line = entry.formatter % entry.getter()
-    stdout.write(if disableColor: stripAnsi(line) else: line)
+    stdout.write(if disableColor: stripAnsi(entry.text) else: entry.text)
+
   stdout.write("\n\n")
   stdout.flushFile()

@@ -7,6 +7,12 @@ type
     configLogoDir*: string
     customLogoFile*: string
     noColor*: bool
+    theme*: string
+    iconPack*: string
+    layout*: string
+    modules*: seq[string]
+    jsonOutput*: bool
+    loadedConfigPath*: string
 
 const
   DefaultMaxLogoWidth* = 200
@@ -41,7 +47,13 @@ proc defaultConfig*(): RuntimeConfig =
     statsOffset: DefaultStatsOffsetBase,
     configLogoDir: "",
     customLogoFile: "",
-    noColor: false
+    noColor: false,
+    theme: "catppuccin",
+    iconPack: "nerd",
+    layout: "full",
+    modules: @[],
+    jsonOutput: false,
+    loadedConfigPath: ""
   )
 
 proc configPaths(): seq[string] =
@@ -92,8 +104,23 @@ proc loadConfig*(): RuntimeConfig =
           if val.len > 0: result.customLogoFile = val
         of "nocolor":
           result.noColor = val.toLowerAscii() in ["1", "true", "yes", "on"]
+        of "theme":
+          if val.len > 0: result.theme = val.toLowerAscii()
+        of "iconpack":
+          if val.len > 0: result.iconPack = val.toLowerAscii()
+        of "layout":
+          if val.len > 0: result.layout = val.toLowerAscii()
+        of "modules":
+          result.modules = @[]
+          for rawMod in val.split(','):
+            let modName = rawMod.strip().toLowerAscii()
+            if modName.len > 0:
+              result.modules.add modName
+        of "json":
+          result.jsonOutput = val.toLowerAscii() in ["1", "true", "yes", "on"]
         else:
           discard
+      result.loadedConfigPath = path
       found = true
     except IOError:
       discard
@@ -106,10 +133,16 @@ proc loadConfig*(): RuntimeConfig =
       if not dirExists(logoDir): createDir(logoDir)
       result.configLogoDir = logoDir
       let path = homeCfg / "config.conf"
+      result.loadedConfigPath = path
       if not fileExists(path):
         let content = "# Nymph configuration (key=value)\n" &
                       "maxwidth = " & $result.maxLogoWidth & "\n" &
                       "statsoffset = " & $result.statsOffset & "\n" &
+                      "theme = " & result.theme & "\n" &
+                      "iconpack = " & result.iconPack & "\n" &
+                      "layout = " & result.layout & "\n" &
+                      "modules = os,kernel,desktop,packages,shell,uptime,memory,colours\n" &
+                      "json = false\n" &
                       "nocolor = false\n" &
                       "customlogo = \"\"  # full path to a PNG logo\n"
         writeFile(path, content)
@@ -120,5 +153,7 @@ proc loadConfig*(): RuntimeConfig =
       let logoDir = homeCfg / "logos"
       if not dirExists(logoDir): createDir(logoDir)
       if dirExists(logoDir): result.configLogoDir = logoDir
+      if result.loadedConfigPath.len == 0:
+        result.loadedConfigPath = homeCfg / "config.conf"
     except IOError:
       discard
