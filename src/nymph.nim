@@ -850,13 +850,12 @@ proc coloursLine(): string =
   let token = if activeIcons.swatches.len > 0: activeIcons.swatches[rand(activeIcons.swatches.high)] else: "##"
   let palette = [activePalette.rosewater, activePalette.mauve, activePalette.pink, activePalette.maroon, activePalette.sky, activePalette.green, activePalette.lavender]
 
-  for idx, color in palette.pairs:
+  for color in palette:
     if disableColor or color.len == 0:
       result.add token
     else:
       result.add color & token
-    if idx < palette.high:
-      result.add " "
+    result.add " "
 
   if not disableColor and activePalette.reset.len > 0:
     result.add activePalette.reset
