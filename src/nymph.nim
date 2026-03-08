@@ -777,44 +777,33 @@ proc getUptime(): string =
 
 
 proc getMemory(): string =
-  ## Compute used memory using the htop formula (total - free/buffers/cached).
-  var memTotal, memFree, buffers, cached, shmem, sreclaimable: int
+  var memTotal, memAvailable: int
 
   proc parseMemField(value: string): int =
-    let fields = value.strip().splitWhitespace()
-    if fields.len == 0:
-      return 0
-    try:
-      fields[0].parseInt()
-    except ValueError:
-      0
+    let fields = value.strip.splitWhitespace()
+    if fields.len > 0:
+      try: return fields[0].parseInt()
+      except ValueError: discard
+    0
 
   if fileExists(meminfoPath):
     for line in lines(meminfoPath):
       let parts = line.split(":")
-      if parts.len != 2:
-        continue
+      if parts.len != 2: continue
 
       case parts[0].strip()
       of "MemTotal":
         memTotal = parseMemField(parts[1])
-      of "MemFree":
-        memFree = parseMemField(parts[1])
-      of "Buffers":
-        buffers = parseMemField(parts[1])
-      of "Cached":
-        cached = parseMemField(parts[1])
-      of "Shmem":
-        shmem = parseMemField(parts[1])
-      of "SReclaimable":
-        sreclaimable = parseMemField(parts[1])
+      of "MemAvailable":
+        memAvailable = parseMemField(parts[1])
       else:
         discard
 
-  if memTotal <= 0:
+  if memTotal <= 0 or memAvailable <= 0:
     return "Unknown memory"
 
-  let usedMem = max(0, memTotal - (memFree + buffers + cached) + (shmem - sreclaimable))
+  let usedMem = memTotal - memAvailable
+
   if usedMem >= 1048576:
     return fmt"{usedMem.float / gibDivisor:0.2f}GiB / {memTotal.float / gibDivisor:0.2f}GiB"
   fmt"{usedMem div mibDivisor}MiB / {memTotal div mibDivisor}MiB"
