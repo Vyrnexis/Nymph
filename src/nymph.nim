@@ -49,6 +49,12 @@ type
     percent: float
     known: bool
 
+  BatteryInfo = object
+    text: string
+    percent: float
+    isCharging: bool
+    known: bool
+
   ModuleKind = enum
     mkOS,
     mkHost,
@@ -88,7 +94,7 @@ type
     uptime: string
     memory: MemoryInfo
     disk: DiskInfo
-    battery: string
+    battery: BatteryInfo
     packages: PackageSummary
 
   LogoData = object
@@ -874,21 +880,24 @@ proc getTerminal(): string =
   "Unknown"
 
 
-proc getBattery(): string =
+proc getBattery(): BatteryInfo =
   let batPath = "/sys/class/power_supply/BAT0/capacity"
   let statusPath = "/sys/class/power_supply/BAT0/status"
   if fileExists(batPath):
     try:
       let cap = readFile(batPath).strip()
+      result.percent = parseFloat(cap)
+      result.known = true
       var status = ""
       if fileExists(statusPath):
         status = readFile(statusPath).strip()
       if status == "Charging":
-        return cap & "% (Charging)"
-      return cap & "%"
-    except IOError:
+        result.isCharging = true
+        result.text = cap & "% (Charging)"
+      else:
+        result.text = cap & "%"
+    except IOError, ValueError:
       discard
-  ""
 
 
 proc getDisk(): DiskInfo =
@@ -899,7 +908,6 @@ proc getDisk(): DiskInfo =
     let used = total - free
     result.known = true
     result.percent = if total > 0: min(100.0, max(0.0, used.float / total.float * 100.0)) else: 0.0
-    let gibTotal = formatFloat(total.float / (1024.0^3), ffDecimal, 2)
     let gibUsed = formatFloat(used.float / (1024.0^3), ffDecimal, 2)
     result.text = fmt"{gibUsed}GiB"
   else:
@@ -1024,9 +1032,12 @@ proc coloursLine(): string =
     result.add activePalette.reset
 
 
-proc levelBar(percent: float; isDisk: bool; width = 10): string =
+proc levelBar(percent: float; isDisk: bool; width = 10; reverseColor = false): string =
   let filled = int(round(percent / 100.0 * width.float))
-  let fillColor = if percent >= 80.0: activePalette.maroon elif percent >= 60.0: activePalette.yellow else: activePalette.green
+  let fillColor = if reverseColor:
+                    if percent <= 20.0: activePalette.maroon elif percent <= 60.0: activePalette.yellow else: activePalette.green
+                  else:
+                    if percent >= 80.0: activePalette.maroon elif percent >= 60.0: activePalette.yellow else: activePalette.green
   let useGlyphBar = activeIconPackName == "nerd" and not disableColor
   
   var fullCell, emptyCell, openCap, closeCap: string
@@ -1067,6 +1078,11 @@ proc formatDisk(disk: DiskInfo): string =
   if not disk.known:
     return disk.text
   levelBar(disk.percent, true) & " " & disk.text
+
+proc formatBattery(battery: BatteryInfo): string =
+  if not battery.known:
+    return battery.text
+  levelBar(battery.percent, false, 10, true) & " " & battery.text
 
 
 proc memoryInfoJson(memory: MemoryInfo): JsonNode =
@@ -1113,8 +1129,18 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
       if snapshot.disk.known:
         line = statLine(activePalette.sky, activeIcons.disk, "Disk", formatDisk(snapshot.disk))
     of mkBattery:
-      if snapshot.battery.len > 0:
-        line = statLine(activePalette.rosewater, activeIcons.battery, "Battery", snapshot.battery)
+      if snapshot.battery.known:
+        let p = snapshot.battery.percent
+        let batColor = if p <= 20.0: activePalette.maroon elif p <= 60.0: activePalette.yellow else: activePalette.green
+        var icon = activeIcons.battery
+        if activeIconPackName == "nerd":
+          if snapshot.battery.isCharging: icon = "󰂄"
+          elif p <= 10.0: icon = ""
+          elif p <= 40.0: icon = ""
+          elif p <= 60.0: icon = ""
+          elif p <= 80.0: icon = ""
+          else: icon = ""
+        line = statLine(batColor, icon, "Battery", formatBattery(snapshot.battery))
     of mkColours:
       let pad = max(0, appConfig.footerPadding)
       line = repeat(" ", pad) & coloursLine()
@@ -1306,8 +1332,8 @@ proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tu
     diskNode["percent"] = %snapshot.disk.percent
     root["disk_info"] = diskNode
     
-  if snapshot.battery.len > 0:
-    root["battery"] = %snapshot.battery
+  if snapshot.battery.known:
+    root["battery"] = %snapshot.battery.text
   root["memory_info"] = memoryInfoJson(snapshot.memory)
   root["packages"] = packageSummaryJson(snapshot.packages)
   root["theme"] = %activeThemeName
