@@ -40,6 +40,13 @@ Show only specific modules:
 ./bin/nymph --modules os,kernel,packages,memory
 ```
 
+See all options and available themes from the terminal:
+```bash
+./bin/nymph --help
+./bin/nymph --list-themes
+./bin/nymph --list-icon-packs
+```
+
 ## Configuration
 
 On the first run, Nymph generates an INI-style config file at `~/.config/nymph/config.conf`. 
