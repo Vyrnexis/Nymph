@@ -1,101 +1,88 @@
-# Nymph 🧚‍♀️
+# Nymph
 
-Hey everyone! Nymph is a little terminal fetch tool I've been working on. 
-
-I wrote it in Nim because I wanted something stupidly fast that starts up instantly, but I also really wanted it to support displaying actual PNG logos right in the terminal (via the Kitty graphics protocol). It falls back to some cool ASCII art if your terminal doesn't support Kitty graphics, so it won't break on you.
+Nymph is a fast, lightweight terminal fetch tool written in Nim. It supports displaying PNG logos directly in your terminal using the Kitty graphics protocol, falling back to ASCII art if your terminal doesn't support images.
 
 ![Nymph Screenshot](Nymph.png)
 
-## Why I made this
-Honestly, I just wanted a fetch tool that was easy to tweak without diving into a massive codebase. 
-- **It's fast.** Like, really fast. Minimal dependencies.
-- **Image support:** Renders high-res PNGs if you use Kitty, WezTerm, Ghostty, etc.
-- **Themes & Icons:** Comes with a few built-in palettes (Catppuccin, Nord, Gruvbox) and Nerd Font support.
-- **JSON mode:** You can pipe it into your status bars (Waybar, Polybar) easily.
+## Features
 
-## How to build it
+- **Fast:** Minimal dependencies and instant startup.
+- **Image support:** Renders high-res PNGs in Kitty, WezTerm, Ghostty, etc.
+- **Customizable:** Built-in themes (Catppuccin, Nord, Gruvbox), Nerd Font support, and tweakable layouts.
+- **JSON mode:** Pipe system data into status bars (Waybar, Polybar) easily.
 
-You'll need Nim installed (at least v2.0.0).
+## Installation
 
-Clone the repo and run:
+You'll need Nim `>= 2.0.0` installed.
+
 ```bash
+# Build the release binary to ./bin/nymph
 nimble release
-```
-That'll compile everything and drop a binary at `./bin/nymph`.
 
-If you just want to run it straight from the source to test things out:
-```bash
+# Or run directly from source
 nim c -r src/nymph.nim
 ```
 
 ## Quick Start
 
-Just run `./bin/nymph` and you're good to go. 
+Run with defaults:
+```bash
+./bin/nymph
+```
 
-If you want to play around with the look without editing config files, try passing some flags:
+Override theme and layout without editing the config:
 ```bash
 ./bin/nymph --theme nord --icon-pack ascii --layout compact
 ```
 
-Want to only see specific things?
+Show only specific modules:
 ```bash
 ./bin/nymph --modules os,kernel,packages,memory
 ```
 
-## The Config File
+## Configuration
 
-On the first run, Nymph will generate a config file at `~/.config/nymph/config.conf`. I recently moved this to use standard INI-style parsing, which means you can leave `# comments` in the file!
-
-Here's what it looks like and what you can tweak:
+On the first run, Nymph generates an INI-style config file at `~/.config/nymph/config.conf`. 
 
 ```conf
-# Drop your own logo path here if you want!
+# Drop your own logo path here
 customlogo = ""
 
-# Layout stuff
+# Layout & Themes
 theme = catppuccin
 iconpack = nerd
 layout = full
+json = false
+nocolor = false
 
-# Important: make sure your modules list is wrapped in quotes!
+# Modules to display (must be wrapped in quotes)
 modules = "os,kernel,desktop,packages,shell,uptime,memory,colours"
 
-# You can change the colored blocks at the bottom of the fetch
+# Customize the colored blocks at the bottom of the fetch
 footericons = "●,■,◆"
 footerpadding = 3
 
 # Advanced tweaks
 maxwidth = 200
 statsoffset = 22
-json = false
-nocolor = false
 ```
 
-### A note on the footer icons
-The `colours` module at the bottom of the fetch is fully customizable. You can give it a single icon (like `footericons = "▃▃▃"`) and it'll repeat it 7 times with different colors. Or you can pass it a comma-separated list of symbols and it will cycle through them. Use `footerpadding` to shift them left or right until they line up perfectly with your text.
+### Footer Icons (`colours` module)
+You can customize the colored footer. Pass a single icon (like `footericons = "▃▃▃"`) to repeat it, or a comma-separated list of symbols to cycle through them. Use `footerpadding` to align the block left or right relative to your stats.
 
-## Modules you can use
-Right now it tracks:
-- `os`
-- `kernel`
-- `desktop` (DE/WM)
-- `packages` (Counts pacman, dpkg, flatpak, apk, snap, portage, etc)
-- `shell`
-- `uptime`
-- `memory` (Shows a neat little RAM bar)
-- `colours` (The colored footer blocks)
+## Available Modules
+- `os`, `kernel`, `desktop` (DE/WM), `shell`, `uptime`
+- `packages`: Counts packages across pacman, dpkg, flatpak, apk, snap, portage, eopkg, xbps, homebrew.
+- `memory`: RAM usage with a compact visual bar.
+- `colours`: Colored footer blocks.
 
-## Scripting (JSON Mode)
-If you're a ricing nerd and want to use Nymph's data in your own scripts or status bars, just run:
-```bash
-./bin/nymph --json
-```
-It spits out a clean JSON object with everything it found. 
+## Scripting (JSON)
+Need raw data for a script? Run `./bin/nymph --json` to get a clean JSON object containing all system metrics.
 
-## Troubleshooting
-If something looks weird or your logo isn't loading, run `./bin/nymph --doctor`. It'll print out exactly where it's looking for config files and logos, and whether it thinks your terminal supports graphics.
+## Diagnostics
+If your logo isn't loading or something looks wrong, run `./bin/nymph --doctor` to see exactly where Nymph is looking for files and whether it detected graphics support.
 
 ## Contributing
-Since I'm just doing this as a hobby, there are probably bugs or edge cases on distros I haven't tested. Feel free to open a PR or issue!
+This is a hobby project! There might be edge cases on untested distros. Feel free to open a PR or issue. 
 
-License is MIT. See [LICENSE](LICENSE).
+License: MIT. See [LICENSE](LICENSE).
