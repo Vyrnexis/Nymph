@@ -14,6 +14,7 @@ type
     jsonOutput*: bool
     loadedConfigPath*: string
     footerIcons*: string
+    footerPadding*: int
 
 const
   DefaultMaxLogoWidth* = 200
@@ -48,7 +49,8 @@ proc defaultConfig*(): RuntimeConfig =
     modules: @[],
     jsonOutput: false,
     loadedConfigPath: "",
-    footerIcons: ""
+    footerIcons: "",
+    footerPadding: 7
   )
 
 proc configPaths(): seq[string] =
@@ -105,6 +107,11 @@ proc loadConfig*(): RuntimeConfig =
       
       let footerIcons = dict.getSectionValue("", "footericons")
       if footerIcons.len > 0: result.footerIcons = footerIcons
+      
+      let footerPadding = dict.getSectionValue("", "footerpadding")
+      if footerPadding.len > 0:
+        try: result.footerPadding = footerPadding.parseInt()
+        except ValueError: discard
 
       result.loadedConfigPath = path
       found = true
@@ -132,7 +139,8 @@ proc loadConfig*(): RuntimeConfig =
                       "json = false\n" &
                       "nocolor = false\n" &
                       "customlogo = \"\"\n" &
-                      "footericons = \"\"\n"
+                      "footericons = \"\"\n" &
+                      "footerpadding = 7\n"
         writeFile(path, content)
     except IOError:
       discard

@@ -934,7 +934,8 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
     of mkMemory:
       line = statLine(activePalette.lavender, activeIcons.memory, "Memory", formatMemory(snapshot.memory))
     of mkColours:
-      line = "       " & coloursLine()
+      let pad = max(0, appConfig.footerPadding)
+      line = repeat(" ", pad) & coloursLine()
 
     result.add line
 
