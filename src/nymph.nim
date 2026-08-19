@@ -1119,7 +1119,8 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
       let pad = max(0, appConfig.footerPadding)
       line = repeat(" ", pad) & coloursLine()
 
-    result.add line
+    if line.len > 0:
+      result.add line
 
 
 proc computeLogoCells(logo: LogoData): tuple[cols, rows: int] =
