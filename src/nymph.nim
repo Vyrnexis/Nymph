@@ -68,7 +68,7 @@ type
     mkMemory,
     mkDisk,
     mkBattery,
-    mkColours
+    mkFooter
 
   CliOptions = object
     logo: string
@@ -187,7 +187,7 @@ proc moduleName(moduleKind: ModuleKind): string =
   of mkMemory: "memory"
   of mkDisk: "disk"
   of mkBattery: "battery"
-  of mkColours: "colours"
+  of mkFooter: "footer"
 
 
 proc parseModule(name: string; moduleKind: var ModuleKind): bool =
@@ -228,8 +228,8 @@ proc parseModule(name: string; moduleKind: var ModuleKind): bool =
   of "battery", "bat":
     moduleKind = mkBattery
     true
-  of "colours", "colors", "palette":
-    moduleKind = mkColours
+  of "footer", "colours", "colors", "palette":
+    moduleKind = mkFooter
     true
   else:
     false
@@ -249,7 +249,7 @@ proc defaultModules(layout: string): seq[ModuleKind] =
   of "compact":
     @[mkOS, mkHost, mkKernel, mkCPU, mkDesktop, mkPackages, mkMemory, mkUptime]
   else:
-    @[mkOS, mkHost, mkKernel, mkCPU, mkDesktop, mkTerminal, mkShell, mkPackages, mkUptime, mkMemory, mkDisk, mkBattery, mkColours]
+    @[mkOS, mkHost, mkKernel, mkCPU, mkDesktop, mkTerminal, mkShell, mkPackages, mkUptime, mkMemory, mkDisk, mkBattery, mkFooter]
 
 
 proc resolveModules(layout: string; names: seq[string]): seq[ModuleKind] =
@@ -1005,7 +1005,7 @@ proc collectSnapshot(): SystemSnapshot =
   result.packages = detectPackageSummary()
 
 
-proc coloursLine(): string =
+proc footerLine(): string =
   let palette = [activePalette.rosewater, activePalette.mauve, activePalette.pink, activePalette.maroon, activePalette.sky, activePalette.green, activePalette.lavender]
   var tokens: seq[string] = @[]
   
@@ -1139,9 +1139,9 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
         if activeIconPackName == "nerd" and snapshot.battery.isCharging:
           icon = "󰂄"
         line = statLine(batColor, icon, "Batt", formatBattery(snapshot.battery))
-    of mkColours:
+    of mkFooter:
       let pad = max(0, appConfig.footerPadding)
-      line = repeat(" ", pad) & coloursLine()
+      line = repeat(" ", pad) & footerLine()
 
     if line.len > 0:
       result.add line
