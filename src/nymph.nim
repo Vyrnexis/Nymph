@@ -844,11 +844,22 @@ proc collectSnapshot(): SystemSnapshot =
 
 
 proc coloursLine(): string =
-  ## Print a sequence of themed swatches.
-  let token = if activeIcons.swatches.len > 0: activeIcons.swatches[rand(activeIcons.swatches.high)] else: "##"
   let palette = [activePalette.rosewater, activePalette.mauve, activePalette.pink, activePalette.maroon, activePalette.sky, activePalette.green, activePalette.lavender]
+  var tokens: seq[string] = @[]
+  
+  if appConfig.footerIcons.len > 0:
+    for raw in appConfig.footerIcons.split(','):
+      let t = raw.strip()
+      if t.len > 0: tokens.add(t)
+  
+  var useTokens = tokens
+  if useTokens.len == 0:
+    let r = if activeIcons.swatches.len > 0: activeIcons.swatches[rand(activeIcons.swatches.high)] else: "##"
+    useTokens.add r
 
-  for color in palette:
+  for i in 0 ..< palette.len:
+    let color = palette[i]
+    let token = useTokens[i mod useTokens.len]
     if disableColor or color.len == 0:
       result.add token
     else:

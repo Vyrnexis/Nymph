@@ -1,4 +1,4 @@
-import std/[os, strutils]
+import std/[os, strutils, parsecfg]
 
 type
   RuntimeConfig* = object
@@ -13,33 +13,27 @@ type
     modules*: seq[string]
     jsonOutput*: bool
     loadedConfigPath*: string
+    footerIcons*: string
 
 const
   DefaultMaxLogoWidth* = 200
   DefaultStatsOffsetBase* = 22
 
 proc normalizeDir*(path: string): string =
-  ## Expand ~ and return an absolute path with duplicate separators removed.
   if path.len == 0:
     return ""
-
   var expanded = path
   if expanded[0] == '~':
     let home = getHomeDir()
     if home.len > 0:
-      if expanded.len == 1:
-        expanded = home
+      if expanded.len == 1: expanded = home
       else:
         var suffix = expanded[1 .. expanded.high]
         if suffix.len > 0 and (suffix[0] == DirSep or suffix[0] == '/'):
-          if suffix.len > 1:
-            suffix = suffix[1 .. suffix.high]
-          else:
-            suffix = ""
+          if suffix.len > 1: suffix = suffix[1 .. suffix.high]
+          else: suffix = ""
         expanded = home / suffix
-
   if isAbsolute(expanded): expanded else: absolutePath(expanded)
-
 
 proc defaultConfig*(): RuntimeConfig =
   RuntimeConfig(
@@ -53,76 +47,69 @@ proc defaultConfig*(): RuntimeConfig =
     layout: "full",
     modules: @[],
     jsonOutput: false,
-    loadedConfigPath: ""
+    loadedConfigPath: "",
+    footerIcons: ""
   )
 
 proc configPaths(): seq[string] =
   let envCfg = getEnv("NYMPH_CONFIG")
   if envCfg.len > 0: result.add envCfg
   let xdg = getEnv("XDG_CONFIG_HOME")
-  if xdg.len > 0:
-    result.add normalizeDir(xdg / "nymph" / "config.conf")
-  else:
-    result.add normalizeDir(getHomeDir() / ".config" / "nymph" / "config.conf")
+  if xdg.len > 0: result.add normalizeDir(xdg / "nymph" / "config.conf")
+  else: result.add normalizeDir(getHomeDir() / ".config" / "nymph" / "config.conf")
   result.add "/etc/xdg/nymph/config.conf"
 
-
 proc loadConfig*(): RuntimeConfig =
-  ## Load config from simple key=value lines; create defaults if missing.
   result = defaultConfig()
   var found = false
 
   for path in configPaths():
     if not fileExists(path): continue
     try:
-      for rawLine in lines(path):
-        var line = rawLine.strip()
-        if line.len == 0 or line.startsWith("#"): continue
-        let hashPos = line.find('#')
-        if hashPos >= 0:
-          line = line[0 ..< hashPos].strip()
-          if line.len == 0: continue
-        let parts = line.split("=", 1)
-        if parts.len != 2: continue
-        let key = parts[0].strip().toLowerAscii()
-        var val = parts[1].strip()
-        val = val.strip(chars = {' ', '"'})
-        case key
-        of "maxwidth":
-          try:
-            let v = val.parseInt()
-            if v > 0: result.maxLogoWidth = v
-          except ValueError:
-            discard
-        of "statsoffset":
-          try:
-            let v = val.parseInt()
-            if v > 0: result.statsOffset = v
-          except ValueError:
-            discard
-        of "customlogo":
-          if val.len > 0: result.customLogoFile = val
-        of "nocolor":
-          result.noColor = val.toLowerAscii() in ["1", "true", "yes", "on"]
-        of "theme":
-          if val.len > 0: result.theme = val.toLowerAscii()
-        of "iconpack":
-          if val.len > 0: result.iconPack = val.toLowerAscii()
-        of "layout":
-          if val.len > 0: result.layout = val.toLowerAscii()
-        of "modules":
-          result.modules = @[]
-          for rawMod in val.split(','):
-            let modName = rawMod.strip().toLowerAscii()
-            if modName.len > 0:
-              result.modules.add modName
-        of "json":
-          result.jsonOutput = val.toLowerAscii() in ["1", "true", "yes", "on"]
-        else:
-          discard
+      let dict = loadConfig(path)
+      # In parsecfg, values with commas must be quoted.
+      let maxwidth = dict.getSectionValue("", "maxwidth")
+      if maxwidth.len > 0:
+        try: result.maxLogoWidth = maxwidth.parseInt()
+        except ValueError: discard
+        
+      let statsoffset = dict.getSectionValue("", "statsoffset")
+      if statsoffset.len > 0:
+        try: result.statsOffset = statsoffset.parseInt()
+        except ValueError: discard
+
+      let customlogo = dict.getSectionValue("", "customlogo")
+      if customlogo.len > 0: result.customLogoFile = customlogo
+
+      let nocolor = dict.getSectionValue("", "nocolor")
+      if nocolor.len > 0: result.noColor = nocolor.toLowerAscii() in ["1", "true", "yes", "on"]
+
+      let theme = dict.getSectionValue("", "theme")
+      if theme.len > 0: result.theme = theme.toLowerAscii()
+
+      let iconpack = dict.getSectionValue("", "iconpack")
+      if iconpack.len > 0: result.iconPack = iconpack.toLowerAscii()
+
+      let layout = dict.getSectionValue("", "layout")
+      if layout.len > 0: result.layout = layout.toLowerAscii()
+
+      let modules = dict.getSectionValue("", "modules")
+      if modules.len > 0:
+        result.modules = @[]
+        for rawMod in modules.split(','):
+          let modName = rawMod.strip().toLowerAscii()
+          if modName.len > 0: result.modules.add modName
+
+      let jsonOutput = dict.getSectionValue("", "json")
+      if jsonOutput.len > 0: result.jsonOutput = jsonOutput.toLowerAscii() in ["1", "true", "yes", "on"]
+      
+      let footerIcons = dict.getSectionValue("", "footericons")
+      if footerIcons.len > 0: result.footerIcons = footerIcons
+
       result.loadedConfigPath = path
       found = true
-    except IOError:
+      break # Stop after finding the first valid config file
+    except IOError, Exception:
       discard
 
   let homeCfg = normalizeDir(getHomeDir() / ".config" / "nymph")
@@ -135,16 +122,17 @@ proc loadConfig*(): RuntimeConfig =
       let path = homeCfg / "config.conf"
       result.loadedConfigPath = path
       if not fileExists(path):
-        let content = "# Nymph configuration (key=value)\n" &
+        let content = "# Nymph configuration\n" &
                       "maxwidth = " & $result.maxLogoWidth & "\n" &
                       "statsoffset = " & $result.statsOffset & "\n" &
                       "theme = " & result.theme & "\n" &
                       "iconpack = " & result.iconPack & "\n" &
                       "layout = " & result.layout & "\n" &
-                      "modules = os,kernel,desktop,packages,shell,uptime,memory,colours\n" &
+                      "modules = \"os,kernel,desktop,packages,shell,uptime,memory,colours\"\n" &
                       "json = false\n" &
                       "nocolor = false\n" &
-                      "customlogo = \"\"  # full path to a PNG logo\n"
+                      "customlogo = \"\"\n" &
+                      "footericons = \"\"\n"
         writeFile(path, content)
     except IOError:
       discard
