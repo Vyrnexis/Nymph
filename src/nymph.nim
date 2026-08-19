@@ -1032,7 +1032,7 @@ proc coloursLine(): string =
     result.add activePalette.reset
 
 
-proc levelBar(percent: float; isDisk: bool; width = 10; reverseColor = false): string =
+proc levelBar(percent: float; useSquares: bool; width = 10; reverseColor = false): string =
   let filled = int(round(percent / 100.0 * width.float))
   let fillColor = if reverseColor:
                     if percent <= 20.0: activePalette.maroon elif percent <= 60.0: activePalette.yellow else: activePalette.green
@@ -1042,7 +1042,7 @@ proc levelBar(percent: float; isDisk: bool; width = 10; reverseColor = false): s
   
   var fullCell, emptyCell, openCap, closeCap: string
   if useGlyphBar:
-    if isDisk:
+    if useSquares:
       fullCell = "■"
       emptyCell = "□"
     else:
@@ -1078,6 +1078,14 @@ proc formatDisk(disk: DiskInfo): string =
   if not disk.known:
     return disk.text
   levelBar(disk.percent, true) & " " & disk.text
+
+proc formatBattery(battery: BatteryInfo): string =
+  if not battery.known:
+    return battery.text
+  let bar = levelBar(battery.percent, true, 10, true)
+  if battery.isCharging:
+    return bar & " (Charging)"
+  return bar
 
 
 proc memoryInfoJson(memory: MemoryInfo): JsonNode =
@@ -1128,14 +1136,9 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
         let p = snapshot.battery.percent
         let batColor = if p <= 20.0: activePalette.maroon elif p <= 60.0: activePalette.yellow else: activePalette.green
         var icon = activeIcons.battery
-        if activeIconPackName == "nerd":
-          if snapshot.battery.isCharging: icon = "󰂄"
-          elif p <= 10.0: icon = ""
-          elif p <= 40.0: icon = ""
-          elif p <= 60.0: icon = ""
-          elif p <= 80.0: icon = ""
-          else: icon = ""
-        line = statLine(batColor, icon, "Battery", snapshot.battery.text)
+        if activeIconPackName == "nerd" and snapshot.battery.isCharging:
+          icon = "󰂄"
+        line = statLine(batColor, icon, "Batt", formatBattery(snapshot.battery))
     of mkColours:
       let pad = max(0, appConfig.footerPadding)
       line = repeat(" ", pad) & coloursLine()
