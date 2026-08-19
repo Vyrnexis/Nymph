@@ -75,7 +75,11 @@ statsoffset = 22
 ```
 
 ### Custom Logos
-You can set `customlogo` to an absolute path of a `.png` file to display it using the Kitty graphics protocol, or a `.txt` (or `.ascii`) file to display custom text-based ASCII art.
+By default, Nymph attempts to detect your OS and automatically loads the matching logo from `~/.config/nymph/logos/` (e.g., `arch.png` or `debian.png`). If no image is found, it falls back to built-in graphics or ASCII. 
+
+To add your own logo for a specific distro, just drop a `.png` (for high-res graphics) or `.txt` (for ASCII art) into `~/.config/nymph/logos/` and name it after your distro's ID!
+
+Alternatively, you can forcefully override the logo detection by setting `customlogo = "/absolute/path/to/logo.png"` in your config file.
 
 ### Footer Icons (`footer` module)
 You can customize the colored footer. Pass a single icon (like `footericons = "▃▃▃"`) to repeat it, or a comma-separated list of symbols to cycle through them. Use `footerpadding` to align the block left or right relative to your stats.
