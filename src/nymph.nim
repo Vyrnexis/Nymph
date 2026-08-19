@@ -77,11 +77,6 @@ type
     memory: MemoryInfo
     packages: PackageSummary
 
-  StatEntry = object
-    col: int
-    row: int
-    text: string
-
 const
   DefaultLogoName = "generic"
   sourceLogoDir = parentDir(currentSourcePath()) / "logos"
@@ -909,8 +904,7 @@ proc statLine(accent, iconValue, label, value: string): string =
   fmt"{accent}{iconValue}  {activePalette.yellow}{activePalette.bold}{label}:{activePalette.reset}{valuePad}{value}"
 
 
-proc buildStatsEntries(statsCol: int; snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[StatEntry] =
-  var row = 1
+proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[string] =
   for moduleKind in modules:
     var line = ""
     case moduleKind
@@ -931,8 +925,7 @@ proc buildStatsEntries(statsCol: int; snapshot: SystemSnapshot; modules: seq[Mod
     of mkColours:
       line = "       " & coloursLine()
 
-    result.add StatEntry(col: statsCol, row: row, text: line)
-    inc row
+    result.add line
 
 
 proc computeLogoCells(logo: LogoData): tuple[cols, rows: int] =
@@ -1174,19 +1167,48 @@ when isMainModule:
     outputJson(snapshot, modules, logoInfo, kittyCapable)
     quit(0)
 
-  stdout.eraseScreen()
-  if kittyCapable and logoInfo.logo.bytes.len > 0:
-    stdout.setCursorPos(1, 1)
+  let statsCol = computeStatsOffset()
+  let stats = buildStatsEntries(snapshot, modules)
+  
+  let useKitty = kittyCapable and logoInfo.logo.bytes.len > 0
+  var logoLines: seq[string] = @[]
+  var logoRows = 0
+  
+  if useKitty:
+    let placement = computeLogoCells(logoInfo.logo)
+    logoRows = placement.rows
+  else:
+    logoLines = AsciiFallbackLogo.split("\n")
+    while logoLines.len > 0 and logoLines[^1] == "":
+      logoLines.del(logoLines.high)
+    logoRows = logoLines.len
+    
+  let totalRows = max(logoRows, stats.len)
+  
+  if useKitty:
+    for i in 0 ..< totalRows: stdout.write("\n")
+    if totalRows > 0: cursorUp(totalRows)
+    
     let placement = computeLogoCells(logoInfo.logo)
     displayKittyGraphics(logoInfo.logo.bytes, placement.cols, placement.rows)
+    
+    for i in 0 ..< totalRows:
+      if i < stats.len:
+        setCursorXPos(statsCol)
+        stdout.write(if disableColor: stripAnsi(stats[i]) else: stats[i])
+      stdout.write("\n")
   else:
-    stdout.setCursorPos(1, 1)
-    stdout.write(AsciiFallbackLogo)
-
-  let statsCol = computeStatsOffset()
-  for entry in buildStatsEntries(statsCol, snapshot, modules):
-    stdout.setCursorPos(entry.col, entry.row)
-    stdout.write(if disableColor: stripAnsi(entry.text) else: entry.text)
-
-  stdout.write("\n\n")
+    for i in 0 ..< totalRows:
+      var lineStr = ""
+      if i < logoLines.len:
+        lineStr = logoLines[i]
+      
+      let padLen = max(0, statsCol - 1 - lineStr.len)
+      lineStr &= repeat(" ", padLen)
+      
+      if i < stats.len:
+        lineStr &= (if disableColor: stripAnsi(stats[i]) else: stats[i])
+      
+      stdout.write(lineStr & "\n")
+  
   stdout.flushFile()
