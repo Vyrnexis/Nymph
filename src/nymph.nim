@@ -1423,4 +1423,5 @@ when isMainModule:
       
       stdout.write(lineStr & "\n")
   
+  stdout.write("\n")
   stdout.flushFile()
