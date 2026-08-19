@@ -107,7 +107,7 @@ type
 const
   DefaultLogoName = "generic"
   sourceLogoDir = parentDir(currentSourcePath()) / "logos"
-  projectLogoDir = parentDir(parentDir(currentSourcePath())) / "logos"
+  projectLogoDir = parentDir(parentDir(currentSourcePath())) / ".config" / "nymph" / "logos"
   AsciiFallbackLogo = """  
       .---.   
       /     \    
