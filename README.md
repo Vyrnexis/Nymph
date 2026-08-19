@@ -65,9 +65,9 @@ nocolor = false
 # Modules to display (must be wrapped in quotes)
 modules = "os,kernel,desktop,packages,shell,uptime,memory,colours"
 
-# Customize the colored blocks at the bottom of the fetch
-footericons = "●,■,◆"
-footerpadding = 3
+# Customize the colored blocks at the bottom of the fetch (leave empty for random)
+footericons = ""
+footerpadding = 7
 
 # Advanced tweaks
 maxwidth = 200
