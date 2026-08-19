@@ -901,7 +901,7 @@ proc getDisk(): DiskInfo =
     result.percent = if total > 0: min(100.0, max(0.0, used.float / total.float * 100.0)) else: 0.0
     let gibTotal = formatFloat(total.float / (1024.0^3), ffDecimal, 2)
     let gibUsed = formatFloat(used.float / (1024.0^3), ffDecimal, 2)
-    result.text = fmt"{gibUsed}GiB / {gibTotal}GiB"
+    result.text = fmt"{gibUsed}GiB"
   else:
     result.text = "Unknown disk"
 
