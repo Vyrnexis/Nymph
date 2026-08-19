@@ -1079,11 +1079,6 @@ proc formatDisk(disk: DiskInfo): string =
     return disk.text
   levelBar(disk.percent, true) & " " & disk.text
 
-proc formatBattery(battery: BatteryInfo): string =
-  if not battery.known:
-    return battery.text
-  levelBar(battery.percent, false, 10, true) & " " & battery.text
-
 
 proc memoryInfoJson(memory: MemoryInfo): JsonNode =
   result = newJObject()
@@ -1140,7 +1135,7 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
           elif p <= 60.0: icon = ""
           elif p <= 80.0: icon = ""
           else: icon = ""
-        line = statLine(batColor, icon, "Battery", formatBattery(snapshot.battery))
+        line = statLine(batColor, icon, "Battery", snapshot.battery.text)
     of mkColours:
       let pad = max(0, appConfig.footerPadding)
       line = repeat(" ", pad) & coloursLine()
