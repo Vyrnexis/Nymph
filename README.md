@@ -1,203 +1,101 @@
-# Nymph
+# Nymph 🧚‍♀️
 
-Nymph is a lightweight terminal system summary tool (fetch utility) written in Nim, with optional Kitty graphics logos, theming, and JSON output.
+Hey everyone! Nymph is a little terminal fetch tool I've been working on. 
 
-## Screenshot
+I wrote it in Nim because I wanted something stupidly fast that starts up instantly, but I also really wanted it to support displaying actual PNG logos right in the terminal (via the Kitty graphics protocol). It falls back to some cool ASCII art if your terminal doesn't support Kitty graphics, so it won't break on you.
 
-![Nymph](Nymph.png)
+![Nymph Screenshot](Nymph.png)
 
-## Why Nymph
+## Why I made this
+Honestly, I just wanted a fetch tool that was easy to tweak without diving into a massive codebase. 
+- **It's fast.** Like, really fast. Minimal dependencies.
+- **Image support:** Renders high-res PNGs if you use Kitty, WezTerm, Ghostty, etc.
+- **Themes & Icons:** Comes with a few built-in palettes (Catppuccin, Nord, Gruvbox) and Nerd Font support.
+- **JSON mode:** You can pipe it into your status bars (Waybar, Polybar) easily.
 
-- Fast startup and minimal dependencies
-- PNG logos via Kitty graphics protocol (with ASCII fallback)
-- Customizable output: themes, icon packs, layouts, and modules
-- RAM usage level bar with percentage and numeric usage
-- Script-friendly JSON mode
-- Built-in diagnostics mode for setup troubleshooting
+## How to build it
 
-## Install / Build
+You'll need Nim installed (at least v2.0.0).
 
-### Prerequisites
-
-- Nim `>= 2.0.0`
-- Nimble
-
-### Build release binary
-
+Clone the repo and run:
 ```bash
 nimble release
 ```
+That'll compile everything and drop a binary at `./bin/nymph`.
 
-This creates `./bin/nymph`.
-
-### Run directly from source
-
+If you just want to run it straight from the source to test things out:
 ```bash
 nim c -r src/nymph.nim
 ```
 
 ## Quick Start
 
-Run with defaults:
+Just run `./bin/nymph` and you're good to go. 
 
-```bash
-./bin/nymph
-```
-
-Try a different look:
-
+If you want to play around with the look without editing config files, try passing some flags:
 ```bash
 ./bin/nymph --theme nord --icon-pack ascii --layout compact
 ```
 
-Use only selected modules:
-
+Want to only see specific things?
 ```bash
 ./bin/nymph --modules os,kernel,packages,memory
 ```
 
-Output JSON for scripts/status bars:
+## The Config File
 
+On the first run, Nymph will generate a config file at `~/.config/nymph/config.conf`. I recently moved this to use standard INI-style parsing, which means you can leave `# comments` in the file!
+
+Here's what it looks like and what you can tweak:
+
+```conf
+# Drop your own logo path here if you want!
+customlogo = ""
+
+# Layout stuff
+theme = catppuccin
+iconpack = nerd
+layout = full
+
+# Important: make sure your modules list is wrapped in quotes!
+modules = "os,kernel,desktop,packages,shell,uptime,memory,colours"
+
+# You can change the colored blocks at the bottom of the fetch
+footericons = "●,■,◆"
+footerpadding = 3
+
+# Advanced tweaks
+maxwidth = 200
+statsoffset = 22
+json = false
+nocolor = false
+```
+
+### A note on the footer icons
+The `colours` module at the bottom of the fetch is fully customizable. You can give it a single icon (like `footericons = "▃▃▃"`) and it'll repeat it 7 times with different colors. Or you can pass it a comma-separated list of symbols and it will cycle through them. Use `footerpadding` to shift them left or right until they line up perfectly with your text.
+
+## Modules you can use
+Right now it tracks:
+- `os`
+- `kernel`
+- `desktop` (DE/WM)
+- `packages` (Counts pacman, dpkg, flatpak, apk, snap, portage, etc)
+- `shell`
+- `uptime`
+- `memory` (Shows a neat little RAM bar)
+- `colours` (The colored footer blocks)
+
+## Scripting (JSON Mode)
+If you're a ricing nerd and want to use Nymph's data in your own scripts or status bars, just run:
 ```bash
 ./bin/nymph --json
 ```
+It spits out a clean JSON object with everything it found. 
 
-Check diagnostics:
+## Troubleshooting
+If something looks weird or your logo isn't loading, run `./bin/nymph --doctor`. It'll print out exactly where it's looking for config files and logos, and whether it thinks your terminal supports graphics.
 
-```bash
-./bin/nymph --doctor
-```
+## Contributing
+Since I'm just doing this as a hobby, there are probably bugs or edge cases on distros I haven't tested. Feel free to open a PR or issue!
 
-## CLI Reference
-
-- `--logo <name|/full/path.png>`: use a logo by name or absolute/relative PNG path
-- `--no-color` / `--no-colors`: disable ANSI colors
-- `--json`: print machine-readable JSON and exit
-- `--doctor`: print environment/config/logo diagnostics and exit
-- `--theme <name>`: `catppuccin`, `nord`, `gruvbox`, `plain`
-- `--icon-pack <name>`: `nerd`, `ascii`, `mono`
-- `--layout <name>`: `full`, `compact`, `minimal`
-- `--modules <csv>`: explicit module list (example: `os,kernel,packages,memory`)
-- `--list-themes`: print supported themes
-- `--list-icon-packs`: print supported icon packs
-- `-h`, `--help`: show help
-
-## Environment Variables
-
-- `NYMPH_LOGO=<name>`: default logo name override
-- `NYMPH_LOGO_DIR=/path/to/logos`: extra logo search directory
-- `NYMPH_CONFIG=/path/to/config.conf`: custom config file path
-
-## Configuration
-
-On first run, Nymph creates:
-
-- `~/.config/nymph/config.conf`
-- `~/.config/nymph/logos/`
-
-Supported `config.conf` keys:
-
-- `maxwidth`: max logo width in pixels (default `200`)
-- `statsoffset`: stats start column (default `22`, with auto padding)
-- `nocolor`: `true` or `false`
-- `customlogo`: full path to PNG logo file
-- `theme`: `catppuccin|nord|gruvbox|plain`
-- `iconpack`: `nerd|ascii|mono`
-- `layout`: `full|compact|minimal`
-- `modules`: comma-separated module list
-- `json`: `true` or `false` (default output mode)
-
-Example:
-
-```conf
-maxwidth = 220
-statsoffset = 26
-theme = nord
-iconpack = nerd
-layout = compact
-modules = os,kernel,packages,memory,uptime
-json = false
-nocolor = false
-customlogo = ""
-```
-
-## Modules
-
-Available modules:
-
-- `os`
-- `kernel`
-- `desktop`
-- `packages`
-- `shell`
-- `uptime`
-- `memory`
-- `colours` (alias: `colors`)
-
-Layout defaults:
-
-- `full`: all modules + color row
-- `compact`: `os,kernel,desktop,packages,memory,uptime`
-- `minimal`: `os,kernel,packages,memory`
-
-## Memory Bar
-
-The `memory` module shows both numeric usage and a compact level bar:
-
-```text
-Memory:  ██░░░░░░░░ 16% 5.10GiB
-```
-
-The bar uses Nerd Font block glyphs with theme colors by default, and falls back to plain ASCII when `--no-color`, the `plain` theme, or a non-Nerd icon pack is active.
-
-## Logos
-
-Nymph searches for `<name>.png` in this order:
-
-1. `src/logos/` (source tree)
-2. `logos/` (project root)
-3. `~/.config/nymph/logos/`
-4. `$NYMPH_LOGO_DIR`
-5. `<app_dir>/logos`
-6. `<app_dir>/../share/nymph/logos`
-
-Notes:
-
-- `--logo <name>` selects a discovered logo name
-- `--logo /path/logo.png` uses that file directly
-- `customlogo` in config is used when CLI logo path is not provided
-- If no PNG is found or Kitty graphics is unavailable, Nymph falls back to built-in ASCII art
-
-## JSON Output Shape
-
-`--json` returns keys such as:
-
-- `os`, `kernel`, `desktop`, `shell`, `uptime`, `memory`
-- `memory_info.known`, `memory_info.used_kib`, `memory_info.total_kib`, `memory_info.percent`
-- `packages.total`
-- `packages.sources` (per-manager counts)
-- `theme`, `icon_pack`, `layout`, `modules`
-- `no_color`, `kitty_graphics`
-- `logo.name`, `logo.path`, `logo.width`, `logo.height`, `logo.ascii_fallback`
-
-## Testing
-
-Run smoke tests:
-
-```bash
-bash scripts/smoke.sh
-```
-
-This validates:
-
-- baseline run
-- color toggle
-- logo overrides
-- theme/icon/layout/modules options
-- doctor mode
-- JSON mode
-- theme/icon-pack listings
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+License is MIT. See [LICENSE](LICENSE).
