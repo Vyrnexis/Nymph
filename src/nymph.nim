@@ -1024,17 +1024,26 @@ proc coloursLine(): string =
     result.add activePalette.reset
 
 
-proc memoryLevelBar(memory: MemoryInfo; width = 10): string =
-  if not memory.known:
-    return ""
-
-  let filled = int(round(memory.percent / 100.0 * width.float))
-  let fillColor = if memory.percent >= 80.0: activePalette.maroon elif memory.percent >= 60.0: activePalette.yellow else: activePalette.green
+proc levelBar(percent: float; isDisk: bool; width = 10): string =
+  let filled = int(round(percent / 100.0 * width.float))
+  let fillColor = if percent >= 80.0: activePalette.maroon elif percent >= 60.0: activePalette.yellow else: activePalette.green
   let useGlyphBar = activeIconPackName == "nerd" and not disableColor
-  let fullCell = if useGlyphBar: "█" else: "="
-  let emptyCell = if useGlyphBar: "░" else: "-"
-  let openCap = if useGlyphBar: "" else: "["
-  let closeCap = if useGlyphBar: "" else: "]"
+  
+  var fullCell, emptyCell, openCap, closeCap: string
+  if useGlyphBar:
+    if isDisk:
+      fullCell = "■"
+      emptyCell = "□"
+    else:
+      fullCell = "█"
+      emptyCell = "░"
+    openCap = ""
+    closeCap = ""
+  else:
+    fullCell = "="
+    emptyCell = "-"
+    openCap = "["
+    closeCap = "]"
 
   result.add openCap
   if not disableColor and fillColor.len > 0:
@@ -1046,13 +1055,18 @@ proc memoryLevelBar(memory: MemoryInfo; width = 10): string =
   for _ in filled ..< width:
     result.add emptyCell
   result.add closeCap & " "
-  result.add intToStr(int(round(memory.percent))) & "%"
+  result.add intToStr(int(round(percent))) & "%"
 
 
 proc formatMemory(memory: MemoryInfo): string =
   if not memory.known:
     return memory.text
-  memoryLevelBar(memory) & " " & memory.text
+  levelBar(memory.percent, false) & " " & memory.text
+
+proc formatDisk(disk: DiskInfo): string =
+  if not disk.known:
+    return disk.text
+  levelBar(disk.percent, true) & " " & disk.text
 
 
 proc memoryInfoJson(memory: MemoryInfo): JsonNode =
@@ -1097,7 +1111,7 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
       line = statLine(activePalette.lavender, activeIcons.memory, "Memory", formatMemory(snapshot.memory))
     of mkDisk:
       if snapshot.disk.known:
-        line = statLine(activePalette.sky, activeIcons.disk, "Disk", snapshot.disk.text)
+        line = statLine(activePalette.sky, activeIcons.disk, "Disk", formatDisk(snapshot.disk))
     of mkBattery:
       if snapshot.battery.len > 0:
         line = statLine(activePalette.rosewater, activeIcons.battery, "Battery", snapshot.battery)
