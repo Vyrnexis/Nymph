@@ -63,7 +63,7 @@ json = false
 nocolor = false
 
 # Modules to display (must be wrapped in quotes)
-modules = "os,kernel,desktop,packages,shell,uptime,memory,colours"
+modules = "os,host,kernel,cpu,desktop,terminal,shell,packages,uptime,memory,disk,battery,colours"
 
 # Customize the colored blocks at the bottom of the fetch (leave empty for random)
 footericons = ""
@@ -74,11 +74,15 @@ maxwidth = 200
 statsoffset = 22
 ```
 
+### Custom Logos
+You can set `customlogo` to an absolute path of a `.png` file to display it using the Kitty graphics protocol, or a `.txt` (or `.ascii`) file to display custom text-based ASCII art.
+
 ### Footer Icons (`colours` module)
 You can customize the colored footer. Pass a single icon (like `footericons = "▃▃▃"`) to repeat it, or a comma-separated list of symbols to cycle through them. Use `footerpadding` to align the block left or right relative to your stats.
 
 ## Available Modules
-- `os`, `kernel`, `desktop` (DE/WM), `shell`, `uptime`
+- **Software**: `os`, `kernel`, `desktop` (DE/WM), `shell`, `terminal`, `uptime`
+- **Hardware**: `host` (Machine Model), `cpu`, `disk`, `battery`
 - `packages`: Counts packages across pacman, dpkg, flatpak, apk, snap, portage, eopkg, xbps, homebrew.
 - `memory`: RAM usage with a compact visual bar.
 - `colours`: Colored footer blocks.

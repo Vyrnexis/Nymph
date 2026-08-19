@@ -2,12 +2,6 @@ import std/[os, terminal, math, strutils, strformat, random, sets, posix, json]
 import kitty_proto, nymph_settings
 
 type
-  # Holds raw PNG bytes and dimensions so we can size the Kitty placement.
-  LogoData = object
-    bytes: string
-    width: int
-    height: int
-
   ThemePalette = object
     rosewater: string
     pink: string
@@ -22,12 +16,17 @@ type
 
   IconPack = object
     os: string
+    host: string
     kernel: string
+    cpu: string
     pkgs: string
     desktop: string
     shell: string
+    terminal: string
     uptime: string
     memory: string
+    disk: string
+    battery: string
     swatches: seq[string]
 
   PackageSource = object
@@ -45,14 +44,24 @@ type
     percent: float
     known: bool
 
+  DiskInfo = object
+    text: string
+    percent: float
+    known: bool
+
   ModuleKind = enum
     mkOS,
+    mkHost,
     mkKernel,
+    mkCPU,
     mkDesktop,
     mkPackages,
     mkShell,
+    mkTerminal,
     mkUptime,
     mkMemory,
+    mkDisk,
+    mkBattery,
     mkColours
 
   CliOptions = object
@@ -70,12 +79,24 @@ type
 
   SystemSnapshot = object
     os: string
+    host: string
     kernel: string
+    cpu: string
     desktop: string
     shell: string
+    terminal: string
     uptime: string
     memory: MemoryInfo
+    disk: DiskInfo
+    battery: string
     packages: PackageSummary
+
+  LogoData = object
+    bytes: string
+    width: int
+    height: int
+    isText: bool
+    textLines: seq[string]
 
 const
   DefaultLogoName = "generic"
@@ -125,12 +146,17 @@ var activePalette = ThemePalette(
 )
 var activeIcons = IconPack(
   os: "",
+  host: "󰒋",
   kernel: "",
+  cpu: "",
   pkgs: "󰏖",
   desktop: "󰇄",
   shell: "",
+  terminal: "",
   uptime: "",
   memory: "󰍛",
+  disk: "󰋊",
+  battery: "",
   swatches: @NerdSwatchIcons
 )
 
@@ -144,12 +170,17 @@ proc parseCsv(raw: string): seq[string] =
 proc moduleName(moduleKind: ModuleKind): string =
   case moduleKind
   of mkOS: "os"
+  of mkHost: "host"
   of mkKernel: "kernel"
+  of mkCPU: "cpu"
   of mkDesktop: "desktop"
   of mkPackages: "packages"
   of mkShell: "shell"
+  of mkTerminal: "terminal"
   of mkUptime: "uptime"
   of mkMemory: "memory"
+  of mkDisk: "disk"
+  of mkBattery: "battery"
   of mkColours: "colours"
 
 
@@ -158,8 +189,14 @@ proc parseModule(name: string; moduleKind: var ModuleKind): bool =
   of "os":
     moduleKind = mkOS
     true
+  of "host", "machine", "model":
+    moduleKind = mkHost
+    true
   of "kernel":
     moduleKind = mkKernel
+    true
+  of "cpu", "processor":
+    moduleKind = mkCPU
     true
   of "desktop", "de", "wm", "dewm":
     moduleKind = mkDesktop
@@ -170,11 +207,20 @@ proc parseModule(name: string; moduleKind: var ModuleKind): bool =
   of "shell":
     moduleKind = mkShell
     true
+  of "terminal", "term":
+    moduleKind = mkTerminal
+    true
   of "uptime":
     moduleKind = mkUptime
     true
-  of "memory", "mem":
+  of "memory", "mem", "ram":
     moduleKind = mkMemory
+    true
+  of "disk", "storage":
+    moduleKind = mkDisk
+    true
+  of "battery", "bat":
+    moduleKind = mkBattery
     true
   of "colours", "colors", "palette":
     moduleKind = mkColours
@@ -193,11 +239,11 @@ proc normalizeLayoutName(name: string): string =
 proc defaultModules(layout: string): seq[ModuleKind] =
   case normalizeLayoutName(layout)
   of "minimal":
-    @[mkOS, mkKernel, mkPackages, mkMemory]
+    @[mkOS, mkHost, mkKernel, mkUptime, mkPackages, mkMemory, mkDisk]
   of "compact":
-    @[mkOS, mkKernel, mkDesktop, mkPackages, mkMemory, mkUptime]
+    @[mkOS, mkHost, mkKernel, mkCPU, mkDesktop, mkPackages, mkMemory, mkUptime]
   else:
-    @[mkOS, mkKernel, mkDesktop, mkPackages, mkShell, mkUptime, mkMemory, mkColours]
+    @[mkOS, mkHost, mkKernel, mkCPU, mkDesktop, mkTerminal, mkShell, mkPackages, mkUptime, mkMemory, mkDisk, mkBattery, mkColours]
 
 
 proc resolveModules(layout: string; names: seq[string]): seq[ModuleKind] =
@@ -296,34 +342,49 @@ proc resolveIconPack(name: string): IconPack =
   of "ascii":
     IconPack(
       os: "OS",
+      host: "PC",
       kernel: "KR",
+      cpu: "CP",
       pkgs: "PK",
       desktop: "DE",
       shell: "SH",
+      terminal: "TE",
       uptime: "UP",
       memory: "MM",
+      disk: "DK",
+      battery: "BT",
       swatches: @AsciiSwatchIcons
     )
   of "mono":
     IconPack(
       os: "#",
+      host: "#",
       kernel: "#",
+      cpu: "#",
       pkgs: "#",
       desktop: "#",
       shell: "#",
+      terminal: "#",
       uptime: "#",
       memory: "#",
+      disk: "#",
+      battery: "#",
       swatches: @["##", "##", "##"]
     )
   else:
     IconPack(
       os: "",
+      host: "󰒋",
       kernel: "",
+      cpu: "",
       pkgs: "󰏖",
       desktop: "󰇄",
       shell: "",
+      terminal: "",
       uptime: "",
       memory: "󰍛",
+      disk: "󰋊",
+      battery: "",
       swatches: @NerdSwatchIcons
     )
 
@@ -404,11 +465,21 @@ proc loadLogo(name: string): LogoData =
 
 
 proc loadLogoFromPath(path: string): LogoData =
-  ## Load a PNG from an explicit path.
+  ## Load a PNG or text file from an explicit path.
   let norm = normalizeDir(path)
   if norm.len == 0 or not fileExists(norm):
     return
   try:
+    let ext = norm.splitFile.ext.toLowerAscii()
+    if ext in [".txt", ".ascii"]:
+      let lines = readFile(norm).splitLines()
+      var textLines: seq[string] = @[]
+      for line in lines:
+        textLines.add(line.replace("\t", "    "))
+      result.isText = true
+      result.textLines = textLines
+      return
+
     let raw = readFile(norm)
     if raw.len == 0:
       return
@@ -633,6 +704,36 @@ proc getKernel(): string {.inline.} =
   "Unknown Kernel Version"
 
 
+proc getHost(): string =
+  if fileExists("/sys/devices/virtual/dmi/id/product_name"):
+    try:
+      let name = readFile("/sys/devices/virtual/dmi/id/product_name").strip()
+      let verPath = "/sys/devices/virtual/dmi/id/product_version"
+      let ver = if fileExists(verPath): readFile(verPath).strip() else: ""
+      if name.len > 0:
+        if ver.len > 0 and ver != "None" and ver != name: return name & " " & ver
+        return name
+    except IOError:
+      discard
+  ""
+
+proc getCPU(): string =
+  if fileExists("/proc/cpuinfo"):
+    try:
+      for line in lines("/proc/cpuinfo"):
+        if line.startsWith("model name"):
+          let parts = line.split(":", 1)
+          if parts.len == 2:
+            var cpu = parts[1].strip()
+            cpu = cpu.replace("(R)", "").replace("(TM)", "").replace(" CPU", "")
+            let atPos = cpu.find(" @")
+            if atPos > 0: cpu = cpu[0 ..< atPos]
+            return cpu.strip()
+    except IOError:
+      discard
+  ""
+
+
 proc countDirs(path: string): int =
   if not dirExists(path):
     return 0
@@ -757,6 +858,54 @@ proc getShell(): string {.inline.} =
   "Unknown"
 
 
+proc getTerminal(): string =
+  let termProg = getEnv("TERM_PROGRAM")
+  if termProg.len > 0: return termProg
+  
+  if getEnv("KITTY_WINDOW_ID").len > 0: return "kitty"
+  if getEnv("WEZTERM_VERSION").len > 0: return "wezterm"
+  if getEnv("GHOSTTY_RESOURCES_DIR").len > 0: return "ghostty"
+  if getEnv("KONSOLE_VERSION").len > 0: return "konsole"
+  if getEnv("ALACRITTY_WINDOW_ID").len > 0: return "alacritty"
+  
+  let termEnv = getEnv("TERM")
+  if termEnv.len > 0: return termEnv
+  
+  "Unknown"
+
+
+proc getBattery(): string =
+  let batPath = "/sys/class/power_supply/BAT0/capacity"
+  let statusPath = "/sys/class/power_supply/BAT0/status"
+  if fileExists(batPath):
+    try:
+      let cap = readFile(batPath).strip()
+      var status = ""
+      if fileExists(statusPath):
+        status = readFile(statusPath).strip()
+      if status == "Charging":
+        return cap & "% (Charging)"
+      return cap & "%"
+    except IOError:
+      discard
+  ""
+
+
+proc getDisk(): DiskInfo =
+  var stats: Statvfs
+  if statvfs("/", stats) == 0:
+    let total = stats.f_blocks * stats.f_frsize
+    let free = stats.f_bfree * stats.f_frsize
+    let used = total - free
+    result.known = true
+    result.percent = if total > 0: min(100.0, max(0.0, used.float / total.float * 100.0)) else: 0.0
+    let gibTotal = formatFloat(total.float / (1024.0^3), ffDecimal, 2)
+    let gibUsed = formatFloat(used.float / (1024.0^3), ffDecimal, 2)
+    result.text = fmt"{gibUsed}GiB / {gibTotal}GiB"
+  else:
+    result.text = "Unknown disk"
+
+
 proc getUptime(): string =
   ## Format /proc/uptime into "X days, HH:MM:SS".
   var uptime: float
@@ -835,11 +984,16 @@ proc getDE(): string =
 
 proc collectSnapshot(): SystemSnapshot =
   result.os = getOS()
+  result.host = getHost()
   result.kernel = getKernel()
+  result.cpu = getCPU()
   result.desktop = getDE()
   result.shell = getShell()
+  result.terminal = getTerminal()
   result.uptime = getUptime()
   result.memory = getMemory()
+  result.disk = getDisk()
+  result.battery = getBattery()
   result.packages = detectPackageSummary()
 
 
@@ -921,18 +1075,32 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
     case moduleKind
     of mkOS:
       line = statLine(activePalette.rosewater, activeIcons.os, "OS", snapshot.os)
+    of mkHost:
+      if snapshot.host.len > 0:
+        line = statLine(activePalette.mauve, activeIcons.host, "Host", snapshot.host)
     of mkKernel:
       line = statLine(activePalette.pink, activeIcons.kernel, "Kernel", snapshot.kernel)
+    of mkCPU:
+      if snapshot.cpu.len > 0:
+        line = statLine(activePalette.green, activeIcons.cpu, "CPU", snapshot.cpu)
     of mkDesktop:
       line = statLine(activePalette.mauve, activeIcons.desktop, "DE/WM", snapshot.desktop)
     of mkPackages:
       line = statLine(activePalette.maroon, activeIcons.pkgs, "Pkgs", formatPackageSummary(snapshot.packages))
     of mkShell:
       line = statLine(activePalette.sky, activeIcons.shell, "Shell", snapshot.shell)
+    of mkTerminal:
+      line = statLine(activePalette.pink, activeIcons.terminal, "Term", snapshot.terminal)
     of mkUptime:
       line = statLine(activePalette.green, activeIcons.uptime, "Uptime", snapshot.uptime)
     of mkMemory:
       line = statLine(activePalette.lavender, activeIcons.memory, "Memory", formatMemory(snapshot.memory))
+    of mkDisk:
+      if snapshot.disk.known:
+        line = statLine(activePalette.sky, activeIcons.disk, "Disk", snapshot.disk.text)
+    of mkBattery:
+      if snapshot.battery.len > 0:
+        line = statLine(activePalette.rosewater, activeIcons.battery, "Battery", snapshot.battery)
     of mkColours:
       let pad = max(0, appConfig.footerPadding)
       line = repeat(" ", pad) & coloursLine()
@@ -1027,21 +1195,21 @@ proc resolveLogo(logoOverride: string): tuple[logo: LogoData, name: string, path
     result.path = overridePath
     result.name = overridePath.splitFile.name.toLowerAscii()
 
-  if result.logo.bytes.len == 0 and appConfig.customLogoFile.len > 0:
+  if result.logo.bytes.len == 0 and not result.logo.isText and appConfig.customLogoFile.len > 0:
     let customPath = normalizeDir(appConfig.customLogoFile)
     result.logo = loadLogoFromPath(customPath)
-    if result.logo.bytes.len > 0:
+    if result.logo.bytes.len > 0 or result.logo.isText:
       result.path = customPath
       result.name = customPath.splitFile.name.toLowerAscii()
 
   let detectedLogoName = detectLogoName(if overridePath.len == 0: logoOverride else: "")
-  if result.logo.bytes.len == 0:
+  if result.logo.bytes.len == 0 and not result.logo.isText:
     result.logo = loadLogo(detectedLogoName)
     if result.logo.bytes.len > 0:
       result.name = detectedLogoName
       result.path = locateLogoFile(detectedLogoName, ".png")
 
-  if result.logo.bytes.len == 0:
+  if result.logo.bytes.len == 0 and not result.logo.isText:
     result.logo = loadLogo(DefaultLogoName)
     if result.logo.bytes.len > 0:
       result.name = DefaultLogoName
@@ -1107,11 +1275,24 @@ proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: 
 proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; kittyCapable: bool) =
   var root = newJObject()
   root["os"] = %snapshot.os
+  root["host"] = %snapshot.host
   root["kernel"] = %snapshot.kernel
+  root["cpu"] = %snapshot.cpu
   root["desktop"] = %snapshot.desktop
   root["shell"] = %snapshot.shell
+  root["terminal"] = %snapshot.terminal
   root["uptime"] = %snapshot.uptime
   root["memory"] = %snapshot.memory.text
+  
+  if snapshot.disk.known:
+    root["disk"] = %snapshot.disk.text
+    var diskNode = newJObject()
+    diskNode["known"] = %true
+    diskNode["percent"] = %snapshot.disk.percent
+    root["disk_info"] = diskNode
+    
+  if snapshot.battery.len > 0:
+    root["battery"] = %snapshot.battery
   root["memory_info"] = memoryInfoJson(snapshot.memory)
   root["packages"] = packageSummaryJson(snapshot.packages)
   root["theme"] = %activeThemeName
@@ -1190,7 +1371,11 @@ when isMainModule:
     let placement = computeLogoCells(logoInfo.logo)
     logoRows = placement.rows
   else:
-    logoLines = AsciiFallbackLogo.split("\n")
+    if logoInfo.logo.isText and logoInfo.logo.textLines.len > 0:
+      logoLines = logoInfo.logo.textLines
+    else:
+      logoLines = AsciiFallbackLogo.split("\n")
+      
     while logoLines.len > 0 and logoLines[^1] == "":
       logoLines.del(logoLines.high)
     logoRows = logoLines.len
