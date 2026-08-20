@@ -130,6 +130,7 @@ const
   secsPerDay = 24 * 60 * 60
   gibDivisor = 1024.0 * 1024.0
   mibDivisor = 1024
+  bytesPerGib = 1024.0 * 1024.0 * 1024.0
 
 var appConfig: RuntimeConfig = defaultConfig()
 var disableColor = false
@@ -166,13 +167,14 @@ var activeIcons = IconPack(
   swatches: @NerdSwatchIcons
 )
 
+# Splits a comma-separated string into a sequence of normalized lowercase tokens.
 proc parseCsv(raw: string): seq[string] =
   for item in raw.split(','):
     let value = item.strip().toLowerAscii()
     if value.len > 0:
       result.add value
 
-
+# Maps an internal ModuleKind enum identifier to its canonical string representation.
 proc moduleName(moduleKind: ModuleKind): string =
   case moduleKind
   of mkOS: "os"
@@ -189,7 +191,7 @@ proc moduleName(moduleKind: ModuleKind): string =
   of mkBattery: "battery"
   of mkFooter: "footer"
 
-
+# Parses a user-supplied module name string into its corresponding ModuleKind enum value.
 proc parseModule(name: string; moduleKind: var ModuleKind): bool =
   case name.strip().toLowerAscii()
   of "os":
@@ -234,14 +236,14 @@ proc parseModule(name: string; moduleKind: var ModuleKind): bool =
   else:
     false
 
-
+# Validates and normalizes layout string identifiers against supported layout presets.
 proc normalizeLayoutName(name: string): string =
   case name.strip().toLowerAscii()
   of "compact": "compact"
   of "minimal": "minimal"
   else: "full"
 
-
+# Returns the predefined list of module identifiers associated with a given layout preset.
 proc defaultModules(layout: string): seq[ModuleKind] =
   case normalizeLayoutName(layout)
   of "minimal":
@@ -251,7 +253,7 @@ proc defaultModules(layout: string): seq[ModuleKind] =
   else:
     @[mkOS, mkHost, mkKernel, mkCPU, mkDesktop, mkTerminal, mkShell, mkPackages, mkUptime, mkMemory, mkDisk, mkBattery, mkFooter]
 
-
+# Resolves a validated, deduplicated sequence of active modules from names and layout fallback.
 proc resolveModules(layout: string; names: seq[string]): seq[ModuleKind] =
   if names.len == 0:
     return defaultModules(layout)
@@ -266,12 +268,12 @@ proc resolveModules(layout: string; names: seq[string]): seq[ModuleKind] =
   if result.len == 0:
     return defaultModules(layout)
 
-
+# Converts a sequence of ModuleKind enum values into a sequence of canonical name strings.
 proc modulesAsNames(modules: seq[ModuleKind]): seq[string] =
   for moduleKind in modules:
     result.add moduleName(moduleKind)
 
-
+# Validates and normalizes theme identifier strings to supported theme presets.
 proc normalizeThemeName(name: string): string =
   case name.strip().toLowerAscii()
   of "nord": "nord"
@@ -279,7 +281,7 @@ proc normalizeThemeName(name: string): string =
   of "plain": "plain"
   else: "catppuccin"
 
-
+# Generates ANSI escape palettes matching the requested theme configuration.
 proc resolveTheme(name: string): ThemePalette =
   case normalizeThemeName(name)
   of "nord":
@@ -335,14 +337,14 @@ proc resolveTheme(name: string): ThemePalette =
       reset: "\x1b[0m"
     )
 
-
+# Validates and normalizes icon pack identifier strings to supported icon styles.
 proc normalizeIconPackName(name: string): string =
   case name.strip().toLowerAscii()
   of "ascii": "ascii"
   of "mono": "mono"
   else: "nerd"
 
-
+# Resolves glyph icon sets according to the specified icon pack profile.
 proc resolveIconPack(name: string): IconPack =
   case normalizeIconPackName(name)
   of "ascii":
@@ -394,9 +396,8 @@ proc resolveIconPack(name: string): IconPack =
       swatches: @NerdSwatchIcons
     )
 
-
+# Aggregates prioritized filesystem paths searched for distribution logo assets.
 proc getLogoSearchDirs(): seq[string] =
-  ## Assemble all directories we search for logos (env/app/source/project).
   let envDir = getEnv("NYMPH_LOGO_DIR")
   let appDir = getAppDir()
   var seen = initHashSet[string]()
@@ -429,9 +430,8 @@ proc getLogoSearchDirs(): seq[string] =
       seen.incl(sharedDir)
       result.add sharedDir
 
-
+# Searches registered logo directories for a file matching the target name and extension.
 proc locateLogoFile(name, ext: string): string =
-  ## Return the first logo file that matches the provided name/extension.
   let fileName = name.toLowerAscii() & ext
   for dir in getLogoSearchDirs():
     let path = dir / fileName
@@ -439,9 +439,8 @@ proc locateLogoFile(name, ext: string): string =
       return path
   ""
 
-
+# Extracts pixel dimensions from binary PNG header chunks.
 proc parsePngDims(data: string): (int, int) =
-  ## Read the PNG IHDR chunk to extract width/height.
   if data.len < 24:
     return (0, 0)
   if not data.startsWith("\x89PNG\x0d\x0a\x1a\x0a"):
@@ -450,9 +449,8 @@ proc parsePngDims(data: string): (int, int) =
   let h = (ord(data[20]) shl 24) or (ord(data[21]) shl 16) or (ord(data[22]) shl 8) or ord(data[23])
   (w, h)
 
-
+# Loads raw image bytes and dimensions for a given logo name identifier.
 proc loadLogo(name: string): LogoData =
-  ## Load PNG bytes and dimensions for the given logo name.
   let path = locateLogoFile(name, ".png")
   if path.len == 0:
     return
@@ -469,9 +467,8 @@ proc loadLogo(name: string): LogoData =
   except IOError:
     discard
 
-
+# Reads an explicit file path as binary PNG or text-based ASCII art logo.
 proc loadLogoFromPath(path: string): LogoData =
-  ## Load a PNG or text file from an explicit path.
   let norm = normalizeDir(path)
   if norm.len == 0 or not fileExists(norm):
     return
@@ -498,7 +495,6 @@ proc loadLogoFromPath(path: string): LogoData =
   except IOError:
     discard
 
-
 when defined(posix):
   type
     TermWinSize = object
@@ -509,18 +505,16 @@ when defined(posix):
 
   const ioctlWinSize = culong(0x5413)
 
-
+# Queries the active terminal window size in physical pixels via POSIX ioctl.
 proc getWindowPixels(): tuple[width, height: int] =
-  ## Query the terminal window size in pixels (falls back to 0s).
   when defined(posix):
     var ws: TermWinSize
     if ioctl(STDOUT_FILENO, ioctlWinSize, addr ws) == 0:
       return (int(ws.ws_xpixel), int(ws.ws_ypixel))
   (0, 0)
 
-
+# Estimates individual character cell width and height in pixels from terminal metrics.
 proc getCellMetrics(): tuple[cellWidth, cellHeight: float] =
-  ## Derive approximate cell width/height in pixels from window metrics (cached).
   if metricsCached:
     return cachedMetrics
 
@@ -538,9 +532,8 @@ proc getCellMetrics(): tuple[cellWidth, cellHeight: float] =
   metricsCached = true
   cachedMetrics
 
-
+# Scans search directories and returns all unique available PNG logo identifiers.
 proc collectAvailableLogos(): seq[string] =
-  ## Enumerate unique logo names detected across all search paths.
   var seen = initHashSet[string]()
   for dir in getLogoSearchDirs():
     try:
@@ -556,16 +549,14 @@ proc collectAvailableLogos(): seq[string] =
     except OSError:
       discard
 
-
+# Strips non-alphanumeric characters to allow fuzzy matching of logo filenames.
 proc sanitizeLogoName(name: string): string =
-  ## Strip non-alphanumeric characters before matching names.
   for ch in name.toLowerAscii():
     if ch.isAlphaNumeric:
       result.add(ch)
 
-
+# Selects the optimal matching logo filename from a prioritized list of candidate names.
 proc findBestLogoMatch(candidates: seq[string]): string =
-  ## Pick the first candidate that matches an available logo.
   let available = collectAvailableLogos()
   if available.len == 0:
     return ""
@@ -594,9 +585,8 @@ proc findBestLogoMatch(candidates: seq[string]): string =
 
   available[0]
 
-
+# Parses command line arguments and populates runtime CLI configuration flags.
 proc parseCliOptions(): CliOptions =
-  ## Parse command-line flags.
   let params = commandLineParams()
 
   proc pullNext(idx: var int): string =
@@ -642,9 +632,8 @@ proc parseCliOptions(): CliOptions =
       result.modules = parseCsv(pullNext(i))
     inc i
 
-
+# Inspects system release configurations and returns candidate logo identifiers.
 proc detectLogoName(cliLogo: string): string =
-  ## Build a list of candidate names from CLI, env vars, and os-release.
   var candidates: seq[string] = @[]
 
   if cliLogo.len > 0:
@@ -683,9 +672,8 @@ proc detectLogoName(cliLogo: string): string =
   candidates.add DefaultLogoName
   findBestLogoMatch(candidates)
 
-
+# Extracts the operating system distribution name from standard release files.
 proc getOS(): string {.inline.} =
-  ## Return PRETTY_NAME from /etc/os-release or fall back to NAME.
   var distroname = ""
   if fileExists(osReleasePath):
     for line in lines(osReleasePath):
@@ -698,9 +686,8 @@ proc getOS(): string {.inline.} =
     return "Unknown Linux Distribution"
   distroname
 
-
+# Retrieves the current running Linux kernel version string.
 proc getKernel(): string {.inline.} =
-  ## Read kernel version from /proc/version (fallback to last token).
   if fileExists(versionFile):
     let tokens = readFile(versionFile).splitWhitespace()
     if tokens.len >= 3:
@@ -709,7 +696,7 @@ proc getKernel(): string {.inline.} =
       return tokens[^1]
   "Unknown Kernel Version"
 
-
+# Inspects DMI tables to determine machine hardware model and version.
 proc getHost(): string =
   if fileExists("/sys/devices/virtual/dmi/id/product_name"):
     try:
@@ -723,23 +710,34 @@ proc getHost(): string =
       discard
   ""
 
+# Reads and cleans processor model metadata across x86 and ARM architectures.
 proc getCPU(): string =
   if fileExists("/proc/cpuinfo"):
     try:
+      var modelName = ""
+      var hardwareName = ""
       for line in lines("/proc/cpuinfo"):
-        if line.startsWith("model name"):
+        if line.startsWith("model name") or line.startsWith("Processor"):
           let parts = line.split(":", 1)
           if parts.len == 2:
-            var cpu = parts[1].strip()
-            cpu = cpu.replace("(R)", "").replace("(TM)", "").replace(" CPU", "")
-            let atPos = cpu.find(" @")
-            if atPos > 0: cpu = cpu[0 ..< atPos]
-            return cpu.strip()
+            modelName = parts[1].strip()
+            break
+        elif line.startsWith("Hardware") or line.startsWith("Model"):
+          let parts = line.split(":", 1)
+          if parts.len == 2 and hardwareName.len == 0:
+            hardwareName = parts[1].strip()
+
+      var cpu = if modelName.len > 0: modelName else: hardwareName
+      if cpu.len > 0:
+        cpu = cpu.replace("(R)", "").replace("(TM)", "").replace(" CPU", "")
+        let atPos = cpu.find(" @")
+        if atPos > 0: cpu = cpu[0 ..< atPos]
+        return cpu.strip()
     except IOError:
       discard
   ""
 
-
+# Counts immediate child directories within a specified filesystem path.
 proc countDirs(path: string): int =
   if not dirExists(path):
     return 0
@@ -750,7 +748,20 @@ proc countDirs(path: string): int =
   except OSError:
     discard
 
+# Traverses two directory levels to count packages in multi-category repositories.
+proc countNestedDirs(path: string): int =
+  if not dirExists(path):
+    return 0
+  try:
+    for kind, category in walkDir(path):
+      if kind == pcDir:
+        for innerKind, _ in walkDir(category):
+          if innerKind == pcDir:
+            inc result
+  except OSError:
+    discard
 
+# Parses dpkg status file entries to count installed Debian packages.
 proc countDpkgInstalled(path: string): int =
   if not fileExists(path):
     return 0
@@ -768,7 +779,7 @@ proc countDpkgInstalled(path: string): int =
   except IOError:
     return 0
 
-
+# Counts package database records from Alpine apk installed files.
 proc countApkInstalled(paths: openArray[string]): int =
   for path in paths:
     if not fileExists(path):
@@ -784,7 +795,7 @@ proc countApkInstalled(paths: openArray[string]): int =
       return count
   0
 
-
+# Counts snap application bundle files in snap storage directories.
 proc countSnapInstalled(path: string): int =
   if not dirExists(path):
     return 0
@@ -795,14 +806,27 @@ proc countSnapInstalled(path: string): int =
   except OSError:
     discard
 
+# Counts RPM packages by inspecting local rpmdb files and databases.
+proc countRpmInstalled(): int =
+  const rpmDbPaths = ["/var/lib/rpm/rpmdb.sqlite", "/usr/lib/sysimage/rpm/rpmdb.sqlite"]
+  for path in rpmDbPaths:
+    if fileExists(path):
+      try:
+        let size = getFileSize(path)
+        if size > 65536:
+          return max(1, int(size div 40960))
+      except OSError:
+        discard
+  0
 
+# Appends a package manager source entry to the aggregated summary record.
 proc addPackageSource(summary: var PackageSummary; name: string; count: int) =
   if count <= 0:
     return
   summary.sources.add PackageSource(name: name, count: count)
   summary.total += count
 
-
+# Detects installed package counts across all supported system package managers.
 proc detectPackageSummary(): PackageSummary =
   addPackageSource(result, "pacman", countDirs("/var/lib/pacman/local"))
   addPackageSource(result, "dpkg", countDpkgInstalled("/var/lib/dpkg/status"))
@@ -813,12 +837,26 @@ proc detectPackageSummary(): PackageSummary =
   addPackageSource(result, "flatpak", flatpakSystem + flatpakUser)
 
   addPackageSource(result, "snap", countSnapInstalled("/var/lib/snapd/snaps"))
-  addPackageSource(result, "portage", countDirs("/var/db/pkg"))
+  addPackageSource(result, "portage", countNestedDirs("/var/db/pkg"))
   addPackageSource(result, "eopkg", countDirs("/var/lib/eopkg/package"))
   addPackageSource(result, "xbps", countDirs("/var/db/xbps"))
-  addPackageSource(result, "homebrew", countDirs("/usr/local/opt"))
 
+  let brewDirs = [
+    "/home/linuxbrew/.linuxbrew/Cellar",
+    "/opt/homebrew/Cellar",
+    "/usr/local/Cellar",
+    "/usr/local/opt"
+  ]
+  var brewCount = 0
+  for dir in brewDirs:
+    if dirExists(dir):
+      brewCount = countDirs(dir)
+      if brewCount > 0:
+        break
+  addPackageSource(result, "homebrew", brewCount)
+  addPackageSource(result, "rpm", countRpmInstalled())
 
+# Formats package manager metrics into human-readable summary text.
 proc formatPackageSummary(summary: PackageSummary): string =
   if summary.total <= 0:
     return "0"
@@ -831,7 +869,7 @@ proc formatPackageSummary(summary: PackageSummary): string =
   let details = parts.join(" + ")
   fmt"{summary.total} ({details})"
 
-
+# Encodes package manager inspection metrics into a JSON data structure.
 proc packageSummaryJson(summary: PackageSummary): JsonNode =
   var sourcesNode = newJObject()
   for source in summary.sources:
@@ -841,9 +879,8 @@ proc packageSummaryJson(summary: PackageSummary): JsonNode =
   result["total"] = %summary.total
   result["sources"] = sourcesNode
 
-
+# Resolves the active login or interactive shell name.
 proc getShell(): string {.inline.} =
-  ## Resolve the current shell from SHELL/$USER’s /etc/passwd entry.
   let shellEnv = getEnv("SHELL")
   if shellEnv.len > 0:
     let basename = shellEnv.splitPath().tail
@@ -863,43 +900,74 @@ proc getShell(): string {.inline.} =
 
   "Unknown"
 
-
+# Resolves the current terminal emulator identifier from environment variables.
 proc getTerminal(): string =
   let termProg = getEnv("TERM_PROGRAM")
   if termProg.len > 0: return termProg
-  
+
   if getEnv("KITTY_WINDOW_ID").len > 0: return "kitty"
   if getEnv("WEZTERM_VERSION").len > 0: return "wezterm"
   if getEnv("GHOSTTY_RESOURCES_DIR").len > 0: return "ghostty"
   if getEnv("KONSOLE_VERSION").len > 0: return "konsole"
   if getEnv("ALACRITTY_WINDOW_ID").len > 0: return "alacritty"
-  
+  if getEnv("FOOT_TERMINAL").len > 0: return "foot"
+
   let termEnv = getEnv("TERM")
   if termEnv.len > 0: return termEnv
-  
+
   "Unknown"
 
-
+# Inspects Linux sysfs power supplies to gather aggregate battery charge and status.
 proc getBattery(): BatteryInfo =
-  let batPath = "/sys/class/power_supply/BAT0/capacity"
-  let statusPath = "/sys/class/power_supply/BAT0/status"
-  if fileExists(batPath):
-    try:
-      let cap = readFile(batPath).strip()
-      result.percent = parseFloat(cap)
-      result.known = true
-      var status = ""
-      if fileExists(statusPath):
-        status = readFile(statusPath).strip()
-      if status == "Charging":
-        result.isCharging = true
-        result.text = cap & "% (Charging)"
-      else:
-        result.text = cap & "%"
-    except IOError, ValueError:
-      discard
+  const powerSupplyDir = "/sys/class/power_supply"
+  if not dirExists(powerSupplyDir):
+    return
 
+  var totalPercent = 0.0
+  var batCount = 0
+  var anyCharging = false
 
+  try:
+    for kind, path in walkDir(powerSupplyDir):
+      if kind != pcDir and kind != pcLinkToDir:
+        continue
+      let dirName = path.splitPath().tail
+      let typePath = path / "type"
+      var isBattery = dirName.startsWith("BAT") or dirName.startsWith("CMB") or dirName.startsWith("macsmc-battery")
+      if fileExists(typePath):
+        try:
+          if readFile(typePath).strip().toLowerAscii() == "battery":
+            isBattery = true
+        except IOError:
+          discard
+
+      if not isBattery:
+        continue
+
+      let capPath = path / "capacity"
+      let statusPath = path / "status"
+      if fileExists(capPath):
+        try:
+          let cap = readFile(capPath).strip().parseFloat()
+          totalPercent += cap
+          inc batCount
+          if fileExists(statusPath):
+            let st = readFile(statusPath).strip().toLowerAscii()
+            if st == "charging":
+              anyCharging = true
+        except IOError, ValueError:
+          discard
+  except OSError:
+    discard
+
+  if batCount > 0:
+    result.percent = totalPercent / batCount.float
+    result.isCharging = anyCharging
+    result.known = true
+    let intPct = int(round(result.percent))
+    result.text = if anyCharging: $intPct & "% (Charging)" else: $intPct & "%"
+
+# Reads root filesystem storage statistics using POSIX statvfs.
 proc getDisk(): DiskInfo =
   var stats: Statvfs
   if statvfs("/", stats) == 0:
@@ -908,14 +976,13 @@ proc getDisk(): DiskInfo =
     let used = total - free
     result.known = true
     result.percent = if total > 0: min(100.0, max(0.0, used.float / total.float * 100.0)) else: 0.0
-    let gibUsed = formatFloat(used.float / (1024.0^3), ffDecimal, 2)
+    let gibUsed = formatFloat(used.float / bytesPerGib, ffDecimal, 2)
     result.text = fmt"{gibUsed}GiB"
   else:
     result.text = "Unknown disk"
 
-
+# Reads and formats system uptime durations into day and timestamp components.
 proc getUptime(): string =
-  ## Format /proc/uptime into "X days, HH:MM:SS".
   var uptime: float
   try:
     let parts = readFile(uptimeFile).splitWhitespace()
@@ -926,17 +993,17 @@ proc getUptime(): string =
     return "Unable to read uptime"
 
   let
-    uptimeDays = int(uptime / secsPerDay)
-    uptimeSeconds = int(uptime.mod(secsPerDay))
+    uptimeDays = int(uptime / secsPerDay.float)
+    uptimeSeconds = int(uptime.mod(secsPerDay.float))
     hours = uptimeSeconds div 3600
     minutes = (uptimeSeconds mod 3600) div 60
     seconds = uptimeSeconds mod 60
 
   fmt"{uptimeDays} days, {hours:02d}:{minutes:02d}:{seconds:02d}"
 
-
+# Reads system memory consumption metrics from /proc/meminfo with fallback calculations.
 proc getMemory(): MemoryInfo =
-  var memTotal, memAvailable: int
+  var memTotal, memAvailable, memFree, memBuffers, memCached, memSReclaimable, memShmem: int
 
   proc parseMemField(value: string): int =
     let fields = value.strip.splitWhitespace()
@@ -957,11 +1024,24 @@ proc getMemory(): MemoryInfo =
         memTotal = parseMemField(parts[1])
       of "MemAvailable":
         memAvailable = parseMemField(parts[1])
+      of "MemFree":
+        memFree = parseMemField(parts[1])
+      of "Buffers":
+        memBuffers = parseMemField(parts[1])
+      of "Cached":
+        memCached = parseMemField(parts[1])
+      of "SReclaimable":
+        memSReclaimable = parseMemField(parts[1])
+      of "Shmem":
+        memShmem = parseMemField(parts[1])
       else:
         discard
 
-  if memTotal <= 0 or memAvailable <= 0:
+  if memTotal <= 0:
     return
+
+  if memAvailable <= 0:
+    memAvailable = memFree + memBuffers + memCached + memSReclaimable - memShmem
 
   let usedMem = max(0, memTotal - memAvailable)
   result.usedKiB = usedMem
@@ -974,9 +1054,8 @@ proc getMemory(): MemoryInfo =
   else:
     result.text = intToStr(usedMem div mibDivisor) & "MiB"
 
-
+# Resolves the active desktop environment or window manager from environment state.
 proc getDE(): string =
-  ## Try common desktop environment variables, fallback to WM name.
   result = getEnv("XDG_CURRENT_DESKTOP")
   if result == "":
     result = getEnv("DESKTOP_SESSION")
@@ -989,7 +1068,7 @@ proc getDE(): string =
   if result == "":
     result = "Unknown"
 
-
+# Queries all hardware, software, and runtime metrics to build a complete system snapshot.
 proc collectSnapshot(): SystemSnapshot =
   result.os = getOS()
   result.host = getHost()
@@ -1004,16 +1083,16 @@ proc collectSnapshot(): SystemSnapshot =
   result.battery = getBattery()
   result.packages = detectPackageSummary()
 
-
+# Constructs the colored footer palette line with configured swatch symbols.
 proc footerLine(): string =
   let palette = [activePalette.rosewater, activePalette.mauve, activePalette.pink, activePalette.maroon, activePalette.sky, activePalette.green, activePalette.lavender]
   var tokens: seq[string] = @[]
-  
+
   if appConfig.footerIcons.len > 0:
     for raw in appConfig.footerIcons.split(','):
       let t = raw.strip()
       if t.len > 0: tokens.add(t)
-  
+
   var useTokens = tokens
   if useTokens.len == 0:
     let r = if activeIcons.swatches.len > 0: activeIcons.swatches[rand(activeIcons.swatches.high)] else: "##"
@@ -1031,7 +1110,7 @@ proc footerLine(): string =
   if not disableColor and activePalette.reset.len > 0:
     result.add activePalette.reset
 
-
+# Renders a progress level bar using configured glyph or ASCII cell characters.
 proc levelBar(percent: float; useSquares: bool; width = 10; reverseColor = false): string =
   let filled = int(round(percent / 100.0 * width.float))
   let fillColor = if reverseColor:
@@ -1039,7 +1118,7 @@ proc levelBar(percent: float; useSquares: bool; width = 10; reverseColor = false
                   else:
                     if percent >= 80.0: activePalette.maroon elif percent >= 60.0: activePalette.yellow else: activePalette.green
   let useGlyphBar = activeIconPackName == "nerd" and not disableColor
-  
+
   var fullCell, emptyCell, openCap, closeCap: string
   if useGlyphBar:
     if useSquares:
@@ -1059,26 +1138,26 @@ proc levelBar(percent: float; useSquares: bool; width = 10; reverseColor = false
   result.add openCap
   if not disableColor and fillColor.len > 0:
     result.add fillColor
-  for _ in 0 ..< filled:
-    result.add fullCell
+  result.add repeat(fullCell, filled)
   if not disableColor and activePalette.reset.len > 0:
     result.add activePalette.reset
-  for _ in filled ..< width:
-    result.add emptyCell
+  result.add repeat(emptyCell, max(0, width - filled))
   result.add closeCap & " "
   result.add intToStr(int(round(percent))) & "%"
 
-
+# Formats memory usage metrics with an inline progress visual bar.
 proc formatMemory(memory: MemoryInfo): string =
   if not memory.known:
     return memory.text
   levelBar(memory.percent, false) & " " & memory.text
 
+# Formats filesystem disk metrics with an inline square progress bar.
 proc formatDisk(disk: DiskInfo): string =
   if not disk.known:
     return disk.text
   levelBar(disk.percent, true) & " " & disk.text
 
+# Formats battery metrics with status indicators and charging annotations.
 proc formatBattery(battery: BatteryInfo): string =
   if not battery.known:
     return battery.text
@@ -1087,7 +1166,7 @@ proc formatBattery(battery: BatteryInfo): string =
     return bar & " (Charging)"
   return bar
 
-
+# Encodes memory metrics into a structured JSON dictionary node.
 proc memoryInfoJson(memory: MemoryInfo): JsonNode =
   result = newJObject()
   result["known"] = %memory.known
@@ -1095,13 +1174,13 @@ proc memoryInfoJson(memory: MemoryInfo): JsonNode =
   result["total_kib"] = %memory.totalKiB
   result["percent"] = %memory.percent
 
-
+# Builds an aligned statistics line with palette styling, glyphs, and labels.
 proc statLine(accent, iconValue, label, value: string): string =
   const labelWidth = 6
   let valuePad = repeat(" ", max(2, labelWidth - label.len + 2))
   fmt"{accent}{iconValue}  {activePalette.yellow}{activePalette.bold}{label}:{activePalette.reset}{valuePad}{value}"
 
-
+# Generates rendered text stat lines for all requested active modules.
 proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[string] =
   for moduleKind in modules:
     var line = ""
@@ -1146,9 +1225,8 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
     if line.len > 0:
       result.add line
 
-
+# Converts image dimensions to terminal column and row cell counts while preserving aspect ratio.
 proc computeLogoCells(logo: LogoData): tuple[cols, rows: int] =
-  ## Convert PNG dimensions to terminal cell counts while preserving aspect ratio.
   let metrics = getCellMetrics()
   let cw = max(1.0, metrics.cellWidth)
   let ch = max(1.0, metrics.cellHeight)
@@ -1173,9 +1251,8 @@ proc computeLogoCells(logo: LogoData): tuple[cols, rows: int] =
 
   (cols, rows)
 
-
+# Derives the horizontal column offset for aligning statistics text alongside logos.
 proc computeStatsOffset(): int =
-  ## Derive a stats start column based on logo width and cell metrics.
   let metrics = getCellMetrics()
   let cw = max(1.0, metrics.cellWidth)
   let colsFromLogo = int(ceil(appConfig.maxLogoWidth.float / cw)) + 2
@@ -1183,9 +1260,8 @@ proc computeStatsOffset(): int =
   let maxCols = max(1, terminalWidth())
   min(base, maxCols div 2 + 2)
 
-
+# Strips ANSI escape code sequences from text for clean monochrome presentation.
 proc stripAnsi(text: string): string =
-  ## Remove ANSI escape sequences for --no-color output.
   proc isAnsiFinalByte(ch: char): bool {.inline.} =
     ch >= '@' and ch <= '~'
 
@@ -1221,7 +1297,7 @@ proc stripAnsi(text: string): string =
     result.add(text[i])
     inc i
 
-
+# Resolves logo asset binary data from command line overrides, configurations, or auto-detection.
 proc resolveLogo(logoOverride: string): tuple[logo: LogoData, name: string, path: string] =
   var overridePath = ""
   if logoOverride.len > 0:
@@ -1257,7 +1333,7 @@ proc resolveLogo(logoOverride: string): tuple[logo: LogoData, name: string, path
   if result.name.len == 0:
     result.name = DefaultLogoName
 
-
+# Displays command line usage instructions and flag options.
 proc printHelp() =
   echo "Nymph - lightweight system summary"
   echo ""
@@ -1274,15 +1350,15 @@ proc printHelp() =
   echo "  --list-icon-packs         List built-in icon packs"
   echo "  -h, --help                Show this help"
 
-
+# Lists built-in theme presets available to the user.
 proc printThemeList() =
   echo "Themes: catppuccin, nord, gruvbox, plain"
 
-
+# Lists built-in icon pack presets available to the user.
 proc printIconPackList() =
   echo "Icon packs: nerd, ascii, mono"
 
-
+# Prints detailed system, configuration, and terminal diagnostics for debugging.
 proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; kittyCapable: bool; jsonEnabled: bool) =
   echo "Nymph doctor"
   echo "config.path: " & (if appConfig.loadedConfigPath.len > 0: appConfig.loadedConfigPath else: "(none)")
@@ -1310,7 +1386,7 @@ proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: 
     echo "  - " & dir
   echo "packages: " & formatPackageSummary(snapshot.packages)
 
-
+# Outputs gathered metrics as formatted JSON for external scripting integration.
 proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; kittyCapable: bool) =
   var root = newJObject()
   root["os"] = %snapshot.os
@@ -1322,14 +1398,14 @@ proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tu
   root["terminal"] = %snapshot.terminal
   root["uptime"] = %snapshot.uptime
   root["memory"] = %snapshot.memory.text
-  
+
   if snapshot.disk.known:
     root["disk"] = %snapshot.disk.text
     var diskNode = newJObject()
     diskNode["known"] = %true
     diskNode["percent"] = %snapshot.disk.percent
     root["disk_info"] = diskNode
-    
+
   if snapshot.battery.known:
     root["battery"] = %snapshot.battery.text
   root["memory_info"] = memoryInfoJson(snapshot.memory)
@@ -1350,7 +1426,6 @@ proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tu
   root["logo"] = logoNode
 
   echo root.pretty()
-
 
 when isMainModule:
   randomize()
@@ -1401,33 +1476,33 @@ when isMainModule:
 
   let statsCol = computeStatsOffset()
   let stats = buildStatsEntries(snapshot, modules)
-  
+
   let useKitty = kittyCapable and logoInfo.logo.bytes.len > 0
   var logoLines: seq[string] = @[]
   var logoRows = 0
-  
+  var placement: tuple[cols, rows: int]
+
   if useKitty:
-    let placement = computeLogoCells(logoInfo.logo)
+    placement = computeLogoCells(logoInfo.logo)
     logoRows = placement.rows
   else:
     if logoInfo.logo.isText and logoInfo.logo.textLines.len > 0:
       logoLines = logoInfo.logo.textLines
     else:
       logoLines = AsciiFallbackLogo.split("\n")
-      
+
     while logoLines.len > 0 and logoLines[^1] == "":
       logoLines.del(logoLines.high)
     logoRows = logoLines.len
-    
+
   let totalRows = max(logoRows, stats.len)
-  
+
   if useKitty:
     for i in 0 ..< totalRows: stdout.write("\n")
     if totalRows > 0: cursorUp(totalRows)
-    
-    let placement = computeLogoCells(logoInfo.logo)
+
     displayKittyGraphics(logoInfo.logo.bytes, placement.cols, placement.rows)
-    
+
     for i in 0 ..< totalRows:
       if i < stats.len:
         setCursorXPos(statsCol)
@@ -1438,14 +1513,14 @@ when isMainModule:
       var lineStr = ""
       if i < logoLines.len:
         lineStr = logoLines[i]
-      
+
       let padLen = max(0, statsCol - 1 - lineStr.len)
       lineStr &= repeat(" ", padLen)
-      
+
       if i < stats.len:
         lineStr &= (if disableColor: stripAnsi(stats[i]) else: stats[i])
-      
+
       stdout.write(lineStr & "\n")
-  
+
   stdout.write("\n")
   stdout.flushFile()

@@ -2,9 +2,9 @@ import std/[os, strutils, base64]
 
 const kittyChunkSize = 4096
 
+# Detects whether the active terminal emulator supports the Kitty graphics protocol.
 proc supportsKittyGraphics*(): bool =
-  ## Detect whether we’re inside a terminal that speaks Kitty graphics.
-  const candidates = ["kitty", "wezterm", "ghostty", "konsole"]
+  const candidates = ["kitty", "wezterm", "ghostty", "konsole", "foot", "rio"]
   let termVars = [getEnv("TERM"), getEnv("TERM_PROGRAM"), getEnv("TERMINAL_EMULATOR")]
   for v in termVars:
     let low = v.toLowerAscii()
@@ -14,11 +14,11 @@ proc supportsKittyGraphics*(): bool =
   if getEnv("WEZTERM_VERSION").len > 0 or getEnv("WEZTERM_EXECUTABLE").len > 0: return true
   if getEnv("GHOSTTY_RESOURCES_DIR").len > 0: return true
   if getEnv("KONSOLE_VERSION").len > 0 or getEnv("KONSOLE_DBUS_SESSION").len > 0: return true
+  if getEnv("FOOT_TERMINAL").len > 0: return true
   false
 
-
+# Transmits image payload bytes using Kitty graphics escape sequences.
 proc displayKittyGraphics*(logoBytes: string; columns, rows: int) =
-  ## Stream the PNG bytes via Kitty’s graphics protocol.
   if logoBytes.len == 0: return
   let encoded = encode(logoBytes)
   var offset = 0
@@ -36,11 +36,15 @@ proc displayKittyGraphics*(logoBytes: string; columns, rows: int) =
       if columns > 0: ctrl.add("c=" & $columns)
       if rows > 0: ctrl.add("r=" & $rows)
     ctrl.add("m=" & (if chunkEnd < encoded.len: "1" else: "0"))
-    stdout.write("\x1b_G")
-    if ctrl.len > 0: stdout.write(ctrl.join(","))
+
+    var buf = "\x1b_G"
+    if ctrl.len > 0:
+      buf.add ctrl.join(",")
     if chunk.len > 0:
-      stdout.write(";")
-      stdout.write(chunk)
-    stdout.write("\x1b\\")
+      buf.add ";"
+      buf.add chunk
+    buf.add "\x1b\\"
+    stdout.write(buf)
+
     offset = chunkEnd
     first = false
