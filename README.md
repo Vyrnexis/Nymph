@@ -6,9 +6,10 @@ Nymph is a fast, lightweight terminal fetch tool written in Nim. It supports dis
 
 ## Features
 
-- **Fast:** Minimal dependencies and instant startup.
-- **Image support:** Renders high-res PNGs in Kitty, WezTerm, Ghostty, etc.
-- **Customizable:** Built-in themes (Catppuccin, Nord, Gruvbox), Nerd Font support, and tweakable layouts.
+- **Fast:** Minimal dependencies, pure sysfs/procfs inspection, and instant startup.
+- **Image support:** Renders high-res PNGs via Kitty Graphics and iTerm2 (OSC 1337) protocols in Kitty, WezTerm, Ghostty, Foot, VS Code terminal, and iTerm2.
+- **Colorized Fallback:** Styled ASCII artwork with theme palette colors when running in basic terminals.
+- **Customizable:** Built-in themes (Catppuccin, Nord, Gruvbox, Plain), Nerd Font icon packs, and tweakable layouts.
 - **JSON mode:** Pipe system data into status bars (Waybar, Polybar) easily.
 
 ## Installation
@@ -37,7 +38,7 @@ Override theme and layout without editing the config:
 
 Show only specific modules:
 ```bash
-./bin/nymph --modules os,kernel,packages,memory
+./bin/nymph --modules title,os,cpu,gpu,memory,disk
 ```
 
 See all options and available themes from the terminal:
@@ -49,7 +50,7 @@ See all options and available themes from the terminal:
 
 ## Configuration
 
-On the first run, Nymph generates an INI-style config file at `~/.config/nymph/config.conf`. 
+On the first run, Nymph generates an INI-style config file at `~/.config/nymph/config.conf` (respecting `$XDG_CONFIG_HOME`).
 
 ```conf
 # Drop your own logo path here
@@ -63,7 +64,7 @@ json = false
 nocolor = false
 
 # Modules to display (must be wrapped in quotes)
-modules = "os,host,kernel,cpu,desktop,terminal,shell,packages,uptime,memory,disk,battery,footer"
+modules = "title,os,host,kernel,cpu,gpu,resolution,desktop,audio,terminal,shell,packages,uptime,localip,memory,disk,battery,footer"
 
 # Customize the colored blocks at the bottom of the fetch (leave empty for random)
 footericons = ""
@@ -85,9 +86,10 @@ Alternatively, you can forcefully override the logo detection by setting `custom
 You can customize the colored footer. Pass a single icon (like `footericons = "▃▃▃"`) to repeat it, or a comma-separated list of symbols to cycle through them. Use `footerpadding` to align the block left or right relative to your stats.
 
 ## Available Modules
-- **Software**: `os`, `kernel`, `desktop` (DE/WM), `shell`, `terminal`, `uptime`
-- **Hardware**: `host` (Machine Model), `cpu`, `disk`, `battery`
-- `packages`: Counts packages across pacman, dpkg, flatpak, apk, snap, portage, eopkg, xbps, homebrew.
+- **Identity & System**: `title` (`user@host` + header rule), `os`, `kernel`, `desktop` (DE/WM), `shell`, `terminal`, `uptime`
+- **Hardware**: `host` (Machine Model), `cpu`, `gpu` (PCI graphics devices), `resolution` (DRM displays), `disk`, `battery`
+- **Network & Media**: `localip` (Active IPv4), `audio` (PipeWire / PulseAudio / ALSA)
+- `packages`: Counts packages across pacman, dpkg, flatpak, apk, snap, portage, eopkg, xbps, homebrew, rpm.
 - `memory`: RAM usage with a compact visual bar.
 - `footer`: Colored footer blocks.
 

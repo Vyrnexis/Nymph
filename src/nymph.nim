@@ -1,4 +1,4 @@
-import std/[os, terminal, math, strutils, strformat, random, sets, posix, json]
+import std/[os, terminal, math, strutils, strformat, random, sets, posix, json, nativesockets]
 import kitty_proto, nymph_settings
 
 type
@@ -15,15 +15,20 @@ type
     reset: string
 
   IconPack = object
+    title: string
     os: string
     host: string
     kernel: string
     cpu: string
+    gpu: string
+    resolution: string
     pkgs: string
     desktop: string
+    audio: string
     shell: string
     terminal: string
     uptime: string
+    localip: string
     memory: string
     disk: string
     battery: string
@@ -56,15 +61,20 @@ type
     known: bool
 
   ModuleKind = enum
+    mkTitle,
     mkOS,
     mkHost,
     mkKernel,
     mkCPU,
+    mkGPU,
+    mkResolution,
     mkDesktop,
+    mkAudio,
     mkPackages,
     mkShell,
     mkTerminal,
     mkUptime,
+    mkLocalIP,
     mkMemory,
     mkDisk,
     mkBattery,
@@ -76,6 +86,7 @@ type
     iconPack: string
     layout: string
     modules: seq[string]
+    battery: string
     noColor: bool
     jsonOutput: bool
     doctor: bool
@@ -84,14 +95,20 @@ type
     help: bool
 
   SystemSnapshot = object
+    user: string
+    hostname: string
     os: string
     host: string
     kernel: string
     cpu: string
+    gpu: string
+    resolution: string
     desktop: string
+    audio: string
     shell: string
     terminal: string
     uptime: string
+    localip: string
     memory: MemoryInfo
     disk: DiskInfo
     battery: BatteryInfo
@@ -152,15 +169,20 @@ var activePalette = ThemePalette(
   reset: "\x1b[0m"
 )
 var activeIcons = IconPack(
+  title: "",
   os: "",
   host: "󰒋",
   kernel: "",
   cpu: "",
+  gpu: "󰢮",
+  resolution: "󰍹",
   pkgs: "󰏖",
   desktop: "󰇄",
+  audio: "󰕾",
   shell: "",
   terminal: "",
   uptime: "",
+  localip: "󰩟",
   memory: "󰍛",
   disk: "󰋊",
   battery: "",
@@ -177,15 +199,20 @@ proc parseCsv(raw: string): seq[string] =
 # Maps an internal ModuleKind enum identifier to its canonical string representation.
 proc moduleName(moduleKind: ModuleKind): string =
   case moduleKind
+  of mkTitle: "title"
   of mkOS: "os"
   of mkHost: "host"
   of mkKernel: "kernel"
   of mkCPU: "cpu"
+  of mkGPU: "gpu"
+  of mkResolution: "resolution"
   of mkDesktop: "desktop"
+  of mkAudio: "audio"
   of mkPackages: "packages"
   of mkShell: "shell"
   of mkTerminal: "terminal"
   of mkUptime: "uptime"
+  of mkLocalIP: "localip"
   of mkMemory: "memory"
   of mkDisk: "disk"
   of mkBattery: "battery"
@@ -194,6 +221,9 @@ proc moduleName(moduleKind: ModuleKind): string =
 # Parses a user-supplied module name string into its corresponding ModuleKind enum value.
 proc parseModule(name: string; moduleKind: var ModuleKind): bool =
   case name.strip().toLowerAscii()
+  of "title", "user", "header":
+    moduleKind = mkTitle
+    true
   of "os":
     moduleKind = mkOS
     true
@@ -206,8 +236,17 @@ proc parseModule(name: string; moduleKind: var ModuleKind): bool =
   of "cpu", "processor":
     moduleKind = mkCPU
     true
+  of "gpu", "graphics", "vga":
+    moduleKind = mkGPU
+    true
+  of "resolution", "display", "screen":
+    moduleKind = mkResolution
+    true
   of "desktop", "de", "wm", "dewm":
     moduleKind = mkDesktop
+    true
+  of "audio", "sound":
+    moduleKind = mkAudio
     true
   of "packages", "package", "pkgs":
     moduleKind = mkPackages
@@ -220,6 +259,9 @@ proc parseModule(name: string; moduleKind: var ModuleKind): bool =
     true
   of "uptime":
     moduleKind = mkUptime
+    true
+  of "localip", "ip", "network", "net":
+    moduleKind = mkLocalIP
     true
   of "memory", "mem", "ram":
     moduleKind = mkMemory
@@ -247,11 +289,11 @@ proc normalizeLayoutName(name: string): string =
 proc defaultModules(layout: string): seq[ModuleKind] =
   case normalizeLayoutName(layout)
   of "minimal":
-    @[mkOS, mkHost, mkKernel, mkUptime, mkPackages, mkMemory, mkDisk]
+    @[mkTitle, mkOS, mkHost, mkKernel, mkUptime, mkPackages, mkMemory, mkDisk]
   of "compact":
-    @[mkOS, mkHost, mkKernel, mkCPU, mkDesktop, mkPackages, mkMemory, mkUptime]
+    @[mkTitle, mkOS, mkHost, mkKernel, mkCPU, mkGPU, mkDesktop, mkPackages, mkMemory, mkUptime]
   else:
-    @[mkOS, mkHost, mkKernel, mkCPU, mkDesktop, mkTerminal, mkShell, mkPackages, mkUptime, mkMemory, mkDisk, mkBattery, mkFooter]
+    @[mkTitle, mkOS, mkHost, mkKernel, mkCPU, mkGPU, mkResolution, mkDesktop, mkAudio, mkTerminal, mkShell, mkPackages, mkUptime, mkLocalIP, mkMemory, mkDisk, mkBattery, mkFooter]
 
 # Resolves a validated, deduplicated sequence of active modules from names and layout fallback.
 proc resolveModules(layout: string; names: seq[string]): seq[ModuleKind] =
@@ -349,15 +391,20 @@ proc resolveIconPack(name: string): IconPack =
   case normalizeIconPackName(name)
   of "ascii":
     IconPack(
+      title: "US",
       os: "OS",
       host: "PC",
       kernel: "KR",
       cpu: "CP",
+      gpu: "GP",
+      resolution: "RS",
       pkgs: "PK",
       desktop: "DE",
+      audio: "AU",
       shell: "SH",
       terminal: "TE",
       uptime: "UP",
+      localip: "IP",
       memory: "MM",
       disk: "DK",
       battery: "BT",
@@ -365,15 +412,20 @@ proc resolveIconPack(name: string): IconPack =
     )
   of "mono":
     IconPack(
+      title: "#",
       os: "#",
       host: "#",
       kernel: "#",
       cpu: "#",
+      gpu: "#",
+      resolution: "#",
       pkgs: "#",
       desktop: "#",
+      audio: "#",
       shell: "#",
       terminal: "#",
       uptime: "#",
+      localip: "#",
       memory: "#",
       disk: "#",
       battery: "#",
@@ -381,15 +433,20 @@ proc resolveIconPack(name: string): IconPack =
     )
   else:
     IconPack(
+      title: "",
       os: "",
       host: "󰒋",
       kernel: "",
       cpu: "",
+      gpu: "󰢮",
+      resolution: "󰍹",
       pkgs: "󰏖",
       desktop: "󰇄",
+      audio: "󰕾",
       shell: "",
       terminal: "",
       uptime: "",
+      localip: "󰩟",
       memory: "󰍛",
       disk: "󰋊",
       battery: "",
@@ -614,6 +671,10 @@ proc parseCliOptions(): CliOptions =
       result.listIconPacks = true
     elif param == "--help" or param == "-h":
       result.help = true
+    elif param.startsWith("--battery=") or param.startsWith("--fake-battery="):
+      result.battery = param.split('=', 1)[1]
+    elif param == "--battery" or param == "--fake-battery":
+      result.battery = pullNext(i)
     elif param.startsWith("--theme="):
       result.theme = param.split('=', 1)[1]
     elif param == "--theme":
@@ -671,6 +732,28 @@ proc detectLogoName(cliLogo: string): string =
 
   candidates.add DefaultLogoName
   findBestLogoMatch(candidates)
+
+# Resolves current logged-in username and machine network hostname.
+proc getTitle(): tuple[user, hostname: string] =
+  var user = getEnv("USER")
+  if user.len == 0:
+    user = getEnv("LOGNAME")
+  if user.len == 0:
+    user = "user"
+
+  var hostname = getHostName()
+  if hostname.len == 0:
+    hostname = getEnv("HOSTNAME")
+  if hostname.len == 0 and fileExists("/etc/hostname"):
+    try: hostname = readFile("/etc/hostname").strip()
+    except IOError: discard
+  if hostname.len == 0 and fileExists("/proc/sys/kernel/hostname"):
+    try: hostname = readFile("/proc/sys/kernel/hostname").strip()
+    except IOError: discard
+  if hostname.len == 0:
+    hostname = "localhost"
+
+  (user, hostname)
 
 # Extracts the operating system distribution name from standard release files.
 proc getOS(): string {.inline.} =
@@ -735,6 +818,157 @@ proc getCPU(): string =
         return cpu.strip()
     except IOError:
       discard
+  ""
+
+# Scans PCI devices in sysfs and maps vendor and device identifiers to GPU models.
+proc getGPU(): string =
+  const pciIdsPaths = [
+    "/usr/share/hwdata/pci.ids",
+    "/usr/share/misc/pci.ids",
+    "/usr/share/pci.ids",
+    "/var/lib/pci.ids"
+  ]
+  var pciIdsPath = ""
+  for path in pciIdsPaths:
+    if fileExists(path):
+      pciIdsPath = path
+      break
+
+  var gpus: seq[string] = @[]
+  const pciDevicesDir = "/sys/bus/pci/devices"
+
+  if dirExists(pciDevicesDir):
+    try:
+      for kind, devPath in walkDir(pciDevicesDir):
+        if kind != pcDir and kind != pcLinkToDir:
+          continue
+        let classFile = devPath / "class"
+        if not fileExists(classFile):
+          continue
+
+        var classStr = ""
+        try: classStr = readFile(classFile).strip()
+        except IOError: continue
+
+        if not classStr.startsWith("0x03"):
+          continue
+
+        var vendor = ""
+        var device = ""
+        try:
+          if fileExists(devPath / "vendor"):
+            vendor = readFile(devPath / "vendor").strip().toLowerAscii()
+            if vendor.startsWith("0x"): vendor = vendor[2 .. ^1]
+          if fileExists(devPath / "device"):
+            device = readFile(devPath / "device").strip().toLowerAscii()
+            if device.startsWith("0x"): device = device[2 .. ^1]
+        except IOError:
+          continue
+
+        var gpuName = ""
+        if pciIdsPath.len > 0 and vendor.len > 0 and device.len > 0:
+          try:
+            var inVendorBlock = false
+            for line in lines(pciIdsPath):
+              if line.len == 0 or line[0] == '#':
+                continue
+              if line[0] != '\t':
+                let v = line[0 ..< min(line.len, 4)].toLowerAscii()
+                inVendorBlock = (v == vendor)
+              elif inVendorBlock and line.startsWith("\t" & device):
+                let parts = line.strip().splitWhitespace()
+                if parts.len >= 2:
+                  gpuName = parts[1 .. ^1].join(" ")
+                  break
+          except IOError:
+            discard
+
+        if gpuName.len == 0:
+          case vendor
+          of "10de": gpuName = "NVIDIA Graphics"
+          of "1002": gpuName = "AMD Radeon Graphics"
+          of "8086": gpuName = "Intel Graphics"
+          of "1af4": gpuName = "VirtIO GPU"
+          of "15ad": gpuName = "VMware SVGA II"
+          of "1ab8": gpuName = "Parallels Display"
+          of "1234": gpuName = "QEMU Standard VGA"
+          else:
+            if vendor.len > 0 and device.len > 0:
+              gpuName = "GPU [" & vendor & ":" & device & "]"
+
+        if gpuName.len > 0:
+          gpuName = gpuName.replace("Advanced Micro Devices, Inc. [AMD/ATI] ", "").replace("NVIDIA Corporation ", "")
+          if not gpus.contains(gpuName):
+            gpus.add gpuName
+    except OSError:
+      discard
+
+  gpus.join(", ")
+
+# Queries DRM display connectors for active resolutions and refresh rates.
+proc getResolution(): string =
+  const drmDir = "/sys/class/drm"
+  if not dirExists(drmDir):
+    return ""
+
+  var displays: seq[string] = @[]
+  try:
+    for kind, path in walkDir(drmDir):
+      if kind != pcDir and kind != pcLinkToDir:
+        continue
+      let statusFile = path / "status"
+      let modesFile = path / "modes"
+      if fileExists(statusFile) and fileExists(modesFile):
+        try:
+          if readFile(statusFile).strip() == "connected":
+            for mode in lines(modesFile):
+              let m = mode.strip()
+              if m.len > 0:
+                if not displays.contains(m):
+                  displays.add m
+                break
+        except IOError:
+          discard
+  except OSError:
+    discard
+
+  displays.join(", ")
+
+# Detects active audio sound server daemon from runtime socket files.
+proc getAudio(): string =
+  let xdgRuntime = getEnv("XDG_RUNTIME_DIR")
+  if xdgRuntime.len > 0:
+    if fileExists(xdgRuntime / "pipewire-0") or dirExists(xdgRuntime / "pipewire-0"):
+      return "PipeWire"
+    if fileExists(xdgRuntime / "pulse" / "native"):
+      return "PulseAudio"
+
+  if dirExists("/dev/snd"):
+    return "ALSA"
+
+  ""
+
+# Determines the active local IPv4 routing interface address.
+proc getLocalIP(): string =
+  try:
+    let s = posix.socket(posix.AF_INET, posix.SOCK_DGRAM, 0)
+    if s.cint >= 0:
+      defer: discard posix.close(s)
+      var target: Sockaddr_in
+      target.sin_family = posix.AF_INET.TSa_Family
+      target.sin_port = nativesockets.htons(53)
+      target.sin_addr.s_addr = 0x08080808.uint32
+      if posix.connect(s, cast[ptr SockAddr](addr target), sizeof(target).SockLen) == 0:
+        var localAddr: Sockaddr_in
+        var addrLen = sizeof(localAddr).SockLen
+        if posix.getsockname(s, cast[ptr SockAddr](addr localAddr), addr addrLen) == 0:
+          let ipPtr = posix.inet_ntoa(localAddr.sin_addr)
+          if ipPtr != nil:
+            let ipStr = $ipPtr
+            if ipStr != "0.0.0.0" and ipStr.len > 0:
+              return ipStr
+  except Exception:
+    discard
   ""
 
 # Counts immediate child directories within a specified filesystem path.
@@ -918,7 +1152,28 @@ proc getTerminal(): string =
   "Unknown"
 
 # Inspects Linux sysfs power supplies to gather aggregate battery charge and status.
-proc getBattery(): BatteryInfo =
+proc getBattery(overrideBat = ""): BatteryInfo =
+  var batInput = overrideBat
+  if batInput.len == 0:
+    batInput = getEnv("NYMPH_BATTERY")
+  if batInput.len == 0:
+    batInput = getEnv("NYMPH_FAKE_BATTERY")
+
+  if batInput.len > 0:
+    try:
+      let parts = batInput.split(':')
+      let pct = min(100.0, max(0.0, parts[0].strip().parseFloat()))
+      result.percent = pct
+      result.known = true
+      if parts.len > 1 and parts[1].strip().toLowerAscii() in ["charging", "1", "true", "yes"]:
+        result.isCharging = true
+        result.text = $int(round(pct)) & "% (Charging)"
+      else:
+        result.text = $int(round(pct)) & "%"
+      return
+    except ValueError:
+      discard
+
   const powerSupplyDir = "/sys/class/power_supply"
   if not dirExists(powerSupplyDir):
     return
@@ -1069,18 +1324,25 @@ proc getDE(): string =
     result = "Unknown"
 
 # Queries all hardware, software, and runtime metrics to build a complete system snapshot.
-proc collectSnapshot(): SystemSnapshot =
+proc collectSnapshot(overrideBat = ""): SystemSnapshot =
+  let (u, h) = getTitle()
+  result.user = u
+  result.hostname = h
   result.os = getOS()
   result.host = getHost()
   result.kernel = getKernel()
   result.cpu = getCPU()
+  result.gpu = getGPU()
+  result.resolution = getResolution()
   result.desktop = getDE()
+  result.audio = getAudio()
   result.shell = getShell()
   result.terminal = getTerminal()
   result.uptime = getUptime()
+  result.localip = getLocalIP()
   result.memory = getMemory()
   result.disk = getDisk()
-  result.battery = getBattery()
+  result.battery = getBattery(overrideBat)
   result.packages = detectPackageSummary()
 
 # Constructs the colored footer palette line with configured swatch symbols.
@@ -1185,6 +1447,14 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
   for moduleKind in modules:
     var line = ""
     case moduleKind
+    of mkTitle:
+      let titleLen = max(10, snapshot.user.len + 1 + snapshot.hostname.len)
+      let titleHeader = fmt"{activePalette.pink}{activePalette.bold}{snapshot.user}{activePalette.reset}{activePalette.rosewater}@{activePalette.yellow}{activePalette.bold}{snapshot.hostname}{activePalette.reset}"
+      let divLine = repeat("─", titleLen)
+      let divider = activePalette.lavender & divLine & activePalette.reset
+      result.add titleHeader
+      result.add divider
+      continue
     of mkOS:
       line = statLine(activePalette.rosewater, activeIcons.os, "OS", snapshot.os)
     of mkHost:
@@ -1195,8 +1465,17 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
     of mkCPU:
       if snapshot.cpu.len > 0:
         line = statLine(activePalette.green, activeIcons.cpu, "CPU", snapshot.cpu)
+    of mkGPU:
+      if snapshot.gpu.len > 0:
+        line = statLine(activePalette.sky, activeIcons.gpu, "GPU", snapshot.gpu)
+    of mkResolution:
+      if snapshot.resolution.len > 0:
+        line = statLine(activePalette.mauve, activeIcons.resolution, "Display", snapshot.resolution)
     of mkDesktop:
       line = statLine(activePalette.mauve, activeIcons.desktop, "DE/WM", snapshot.desktop)
+    of mkAudio:
+      if snapshot.audio.len > 0:
+        line = statLine(activePalette.rosewater, activeIcons.audio, "Audio", snapshot.audio)
     of mkPackages:
       line = statLine(activePalette.maroon, activeIcons.pkgs, "Pkgs", formatPackageSummary(snapshot.packages))
     of mkShell:
@@ -1205,6 +1484,9 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
       line = statLine(activePalette.pink, activeIcons.terminal, "Term", snapshot.terminal)
     of mkUptime:
       line = statLine(activePalette.green, activeIcons.uptime, "Uptime", snapshot.uptime)
+    of mkLocalIP:
+      if snapshot.localip.len > 0:
+        line = statLine(activePalette.lavender, activeIcons.localip, "Local IP", snapshot.localip)
     of mkMemory:
       line = statLine(activePalette.lavender, activeIcons.memory, "Memory", formatMemory(snapshot.memory))
     of mkDisk:
@@ -1339,13 +1621,14 @@ proc printHelp() =
   echo ""
   echo "Usage: nymph [options]"
   echo "  --logo <name|path>        Override logo by name or PNG path"
+  echo "  --battery <pct[:status]>  Override battery percentage (e.g. 85 or 85:charging)"
   echo "  --no-color                Disable ANSI colors"
   echo "  --json                    Print machine-readable JSON"
   echo "  --doctor                  Print diagnostics and exit"
   echo "  --theme <name>            Theme: catppuccin, nord, gruvbox, plain"
   echo "  --icon-pack <name>        Icon pack: nerd, ascii, mono"
   echo "  --layout <name>           Layout: full, compact, minimal"
-  echo "  --modules <csv>           Explicit modules (os,kernel,packages,...)"
+  echo "  --modules <csv>           Explicit modules (title,os,cpu,gpu,packages,...)"
   echo "  --list-themes             List built-in themes"
   echo "  --list-icon-packs         List built-in icon packs"
   echo "  -h, --help                Show this help"
@@ -1359,7 +1642,7 @@ proc printIconPackList() =
   echo "Icon packs: nerd, ascii, mono"
 
 # Prints detailed system, configuration, and terminal diagnostics for debugging.
-proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; kittyCapable: bool; jsonEnabled: bool) =
+proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; proto: GraphicsProtocol; jsonEnabled: bool) =
   echo "Nymph doctor"
   echo "config.path: " & (if appConfig.loadedConfigPath.len > 0: appConfig.loadedConfigPath else: "(none)")
   echo "config.theme: " & appConfig.theme
@@ -1371,7 +1654,7 @@ proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: 
   echo "runtime.modules: " & modulesAsNames(modules).join(",")
   echo "runtime.nocolor: " & $disableColor
   echo "runtime.json: " & $jsonEnabled
-  echo "terminal.kittyGraphics: " & $kittyCapable
+  echo "terminal.graphicsProtocol: " & $proto
   echo "terminal.TERM: " & getEnv("TERM")
   echo "terminal.TERM_PROGRAM: " & getEnv("TERM_PROGRAM")
   echo "terminal.TERMINAL_EMULATOR: " & getEnv("TERMINAL_EMULATOR")
@@ -1387,16 +1670,22 @@ proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: 
   echo "packages: " & formatPackageSummary(snapshot.packages)
 
 # Outputs gathered metrics as formatted JSON for external scripting integration.
-proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; kittyCapable: bool) =
+proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; proto: GraphicsProtocol) =
   var root = newJObject()
+  root["user"] = %snapshot.user
+  root["hostname"] = %snapshot.hostname
   root["os"] = %snapshot.os
   root["host"] = %snapshot.host
   root["kernel"] = %snapshot.kernel
   root["cpu"] = %snapshot.cpu
+  root["gpu"] = %snapshot.gpu
+  root["resolution"] = %snapshot.resolution
   root["desktop"] = %snapshot.desktop
+  root["audio"] = %snapshot.audio
   root["shell"] = %snapshot.shell
   root["terminal"] = %snapshot.terminal
   root["uptime"] = %snapshot.uptime
+  root["local_ip"] = %snapshot.localip
   root["memory"] = %snapshot.memory.text
 
   if snapshot.disk.known:
@@ -1415,7 +1704,7 @@ proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tu
   root["layout"] = %activeLayoutName
   root["modules"] = %modulesAsNames(modules)
   root["no_color"] = %disableColor
-  root["kitty_graphics"] = %kittyCapable
+  root["graphics_protocol"] = % $proto
 
   var logoNode = newJObject()
   logoNode["name"] = %logoInfo.name
@@ -1463,26 +1752,26 @@ when isMainModule:
 
   let logoOverride = cli.logo.strip()
   let logoInfo = resolveLogo(logoOverride)
-  let kittyCapable = supportsKittyGraphics()
-  let snapshot = collectSnapshot()
+  let graphicsProto = detectGraphicsProtocol()
+  let snapshot = collectSnapshot(cli.battery)
 
   if cli.doctor:
-    doctorOutput(snapshot, modules, logoInfo, kittyCapable, jsonEnabled)
+    doctorOutput(snapshot, modules, logoInfo, graphicsProto, jsonEnabled)
     quit(0)
 
   if jsonEnabled:
-    outputJson(snapshot, modules, logoInfo, kittyCapable)
+    outputJson(snapshot, modules, logoInfo, graphicsProto)
     quit(0)
 
   let statsCol = computeStatsOffset()
   let stats = buildStatsEntries(snapshot, modules)
 
-  let useKitty = kittyCapable and logoInfo.logo.bytes.len > 0
+  let renderImage = graphicsProto != gpNone and logoInfo.logo.bytes.len > 0
   var logoLines: seq[string] = @[]
   var logoRows = 0
   var placement: tuple[cols, rows: int]
 
-  if useKitty:
+  if renderImage:
     placement = computeLogoCells(logoInfo.logo)
     logoRows = placement.rows
   else:
@@ -1497,11 +1786,14 @@ when isMainModule:
 
   let totalRows = max(logoRows, stats.len)
 
-  if useKitty:
+  if renderImage:
     for i in 0 ..< totalRows: stdout.write("\n")
     if totalRows > 0: cursorUp(totalRows)
 
-    displayKittyGraphics(logoInfo.logo.bytes, placement.cols, placement.rows)
+    if graphicsProto == gpKitty:
+      displayKittyGraphics(logoInfo.logo.bytes, placement.cols, placement.rows)
+    elif graphicsProto == gpIterm:
+      displayItermGraphics(logoInfo.logo.bytes, placement.cols, placement.rows)
 
     for i in 0 ..< totalRows:
       if i < stats.len:
@@ -1512,9 +1804,11 @@ when isMainModule:
     for i in 0 ..< totalRows:
       var lineStr = ""
       if i < logoLines.len:
-        lineStr = logoLines[i]
+        let rawLine = logoLines[i]
+        lineStr = if disableColor or activePalette.pink.len == 0: rawLine else: activePalette.pink & rawLine & activePalette.reset
 
-      let padLen = max(0, statsCol - 1 - lineStr.len)
+      let lineLen = if i < logoLines.len: logoLines[i].len else: 0
+      let padLen = max(0, statsCol - 1 - lineLen)
       lineStr &= repeat(" ", padLen)
 
       if i < stats.len:
