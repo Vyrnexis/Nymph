@@ -1,27 +1,29 @@
+## Configuration loading, INI parsing, and XDG directory management for Nymph.
 import std/[os, strutils, parsecfg]
 
 type
   RuntimeConfig* = object
-    maxLogoWidth*: int
-    statsOffset*: int
-    configLogoDir*: string
-    customLogoFile*: string
-    noColor*: bool
-    theme*: string
-    iconPack*: string
-    layout*: string
-    modules*: seq[string]
-    jsonOutput*: bool
-    loadedConfigPath*: string
-    footerIcons*: string
-    footerPadding*: int
+    ## Global configuration object loaded from disk or default presets.
+    maxLogoWidth*: int        ## Maximum rendered logo width in terminal cells.
+    statsOffset*: int         ## Starting horizontal column for stats text.
+    configLogoDir*: string    ## User logo search directory path.
+    customLogoFile*: string   ## Explicit override logo file path.
+    noColor*: bool            ## True if ANSI color output is disabled.
+    theme*: string            ## Active theme name.
+    iconPack*: string         ## Active icon pack name.
+    layout*: string           ## Active layout name.
+    modules*: seq[string]     ## Ordered list of module names to display.
+    jsonOutput*: bool         ## True if machine-readable JSON output is requested.
+    loadedConfigPath*: string ## Filesystem path of the loaded configuration file.
+    footerIcons*: string      ## Custom footer block symbol string.
+    footerPadding*: int       ## Left-padding offset for the footer blocks.
 
 const
-  DefaultMaxLogoWidth* = 200
-  DefaultStatsOffsetBase* = 22
+  DefaultMaxLogoWidth* = 200      ## Default upper bound for logo width in pixels.
+  DefaultStatsOffsetBase* = 22    ## Default horizontal margin between logo and stats.
 
-# Expands home directory tildes and resolves absolute directory paths.
 proc normalizeDir*(path: string): string =
+  ## Expands home directory tildes and resolves absolute directory paths.
   if path.len == 0:
     return ""
   var expanded = path
@@ -37,8 +39,8 @@ proc normalizeDir*(path: string): string =
         expanded = home / suffix
   if isAbsolute(expanded): expanded else: absolutePath(expanded)
 
-# Constructs a default RuntimeConfig record initialized with standard presets.
 proc defaultConfig*(): RuntimeConfig =
+  ## Constructs a default RuntimeConfig record initialized with standard presets.
   RuntimeConfig(
     maxLogoWidth: DefaultMaxLogoWidth,
     statsOffset: DefaultStatsOffsetBase,
@@ -55,24 +57,24 @@ proc defaultConfig*(): RuntimeConfig =
     footerPadding: 7
   )
 
-# Resolves the base configuration directory adhering to XDG specifications.
 proc getDefaultConfigDir(): string =
+  ## Resolves the base configuration directory adhering to XDG specifications.
   let xdg = getEnv("XDG_CONFIG_HOME")
   if xdg.len > 0:
     normalizeDir(xdg / "nymph")
   else:
     normalizeDir(getHomeDir() / ".config" / "nymph")
 
-# Assembles the ordered search paths for configuration files.
 proc configPaths(): seq[string] =
+  ## Assembles the ordered search paths for configuration files.
   let envCfg = getEnv("NYMPH_CONFIG")
   if envCfg.len > 0:
     result.add normalizeDir(envCfg)
   result.add normalizeDir(getDefaultConfigDir() / "config.conf")
   result.add "/etc/xdg/nymph/config.conf"
 
-# Loads application settings from configuration files or provisions defaults if missing.
 proc loadConfig*(): RuntimeConfig =
+  ## Loads application settings from configuration files or provisions defaults if missing.
   result = defaultConfig()
   var found = false
 

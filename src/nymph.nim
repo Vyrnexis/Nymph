@@ -1,66 +1,75 @@
-import std/[os, terminal, math, strutils, strformat, random, sets, posix, json, nativesockets]
+## Nymph: Lightweight system summary and fetch tool with Kitty & iTerm2 graphics support.
+import std/[os, terminal, math, strutils, strformat, random, sets, posix, json]
 import kitty_proto, nymph_settings
 
 type
-  ThemePalette = object
-    rosewater: string
-    pink: string
-    mauve: string
-    maroon: string
-    yellow: string
-    green: string
-    sky: string
-    lavender: string
-    bold: string
-    reset: string
+  ThemePalette* = object
+    ## ANSI escape sequences defining a color palette theme.
+    rosewater*: string
+    pink*: string
+    mauve*: string
+    maroon*: string
+    yellow*: string
+    green*: string
+    sky*: string
+    lavender*: string
+    bold*: string
+    reset*: string
 
-  IconPack = object
-    title: string
-    os: string
-    host: string
-    kernel: string
-    cpu: string
-    gpu: string
-    resolution: string
-    pkgs: string
-    desktop: string
-    audio: string
-    shell: string
-    terminal: string
-    uptime: string
-    localip: string
-    memory: string
-    disk: string
-    battery: string
-    swatches: seq[string]
+  IconPack* = object
+    ## Glyph symbols representing individual system information modules.
+    title*: string
+    os*: string
+    host*: string
+    kernel*: string
+    cpu*: string
+    gpu*: string
+    resolution*: string
+    pkgs*: string
+    desktop*: string
+    audio*: string
+    shell*: string
+    terminal*: string
+    uptime*: string
+    localip*: string
+    memory*: string
+    disk*: string
+    battery*: string
+    swatches*: seq[string]
 
-  PackageSource = object
-    name: string
-    count: int
+  PackageSource* = object
+    ## Package manager name and associated installed package count.
+    name*: string
+    count*: int
 
-  PackageSummary = object
-    total: int
-    sources: seq[PackageSource]
+  PackageSummary* = object
+    ## Aggregated package statistics across all detected package managers.
+    total*: int
+    sources*: seq[PackageSource]
 
-  MemoryInfo = object
-    text: string
-    usedKiB: int
-    totalKiB: int
-    percent: float
-    known: bool
+  MemoryInfo* = object
+    ## Physical RAM metrics and capacity utilization.
+    text*: string
+    usedKiB*: int
+    totalKiB*: int
+    percent*: float
+    known*: bool
 
-  DiskInfo = object
-    text: string
-    percent: float
-    known: bool
+  DiskInfo* = object
+    ## Root filesystem storage statistics.
+    text*: string
+    percent*: float
+    known*: bool
 
-  BatteryInfo = object
-    text: string
-    percent: float
-    isCharging: bool
-    known: bool
+  BatteryInfo* = object
+    ## Battery state of charge and power supply status.
+    text*: string
+    percent*: float
+    isCharging*: bool
+    known*: bool
 
-  ModuleKind = enum
+  ModuleKind* = enum
+    ## Enumeration of all supported information modules.
     mkTitle,
     mkOS,
     mkHost,
@@ -80,49 +89,52 @@ type
     mkBattery,
     mkFooter
 
-  CliOptions = object
-    logo: string
-    theme: string
-    iconPack: string
-    layout: string
-    modules: seq[string]
-    battery: string
-    noColor: bool
-    jsonOutput: bool
-    doctor: bool
-    listThemes: bool
-    listIconPacks: bool
-    help: bool
+  CliOptions* = object
+    ## Parsed command-line flags and parameters.
+    logo*: string
+    theme*: string
+    iconPack*: string
+    layout*: string
+    modules*: seq[string]
+    battery*: string
+    noColor*: bool
+    jsonOutput*: bool
+    doctor*: bool
+    listThemes*: bool
+    listIconPacks*: bool
+    help*: bool
 
-  SystemSnapshot = object
-    user: string
-    hostname: string
-    os: string
-    host: string
-    kernel: string
-    cpu: string
-    gpu: string
-    resolution: string
-    desktop: string
-    audio: string
-    shell: string
-    terminal: string
-    uptime: string
-    localip: string
-    memory: MemoryInfo
-    disk: DiskInfo
-    battery: BatteryInfo
-    packages: PackageSummary
+  SystemSnapshot* = object
+    ## Complete captured snapshot of hardware, software, and runtime metrics.
+    user*: string
+    hostname*: string
+    os*: string
+    host*: string
+    kernel*: string
+    cpu*: string
+    gpu*: string
+    resolution*: string
+    desktop*: string
+    audio*: string
+    shell*: string
+    terminal*: string
+    uptime*: string
+    localip*: string
+    memory*: MemoryInfo
+    disk*: DiskInfo
+    battery*: BatteryInfo
+    packages*: PackageSummary
 
-  LogoData = object
-    bytes: string
-    width: int
-    height: int
-    isText: bool
-    textLines: seq[string]
+  LogoData* = object
+    ## Raw image or text logo payload data and dimensions.
+    bytes*: string
+    width*: int
+    height*: int
+    isText*: bool
+    textLines*: seq[string]
 
 const
-  DefaultLogoName = "generic"
+  DefaultLogoName* = "generic"
   sourceLogoDir = parentDir(currentSourcePath()) / "logos"
   projectLogoDir = parentDir(parentDir(currentSourcePath())) / ".config" / "nymph" / "logos"
   AsciiFallbackLogo = """  
@@ -189,15 +201,15 @@ var activeIcons = IconPack(
   swatches: @NerdSwatchIcons
 )
 
-# Splits a comma-separated string into a sequence of normalized lowercase tokens.
-proc parseCsv(raw: string): seq[string] =
+proc parseCsv*(raw: string): seq[string] =
+  ## Splits a comma-separated string into a sequence of normalized lowercase tokens.
   for item in raw.split(','):
     let value = item.strip().toLowerAscii()
     if value.len > 0:
       result.add value
 
-# Maps an internal ModuleKind enum identifier to its canonical string representation.
-proc moduleName(moduleKind: ModuleKind): string =
+proc moduleName*(moduleKind: ModuleKind): string =
+  ## Maps an internal ModuleKind enum identifier to its canonical string representation.
   case moduleKind
   of mkTitle: "title"
   of mkOS: "os"
@@ -218,8 +230,8 @@ proc moduleName(moduleKind: ModuleKind): string =
   of mkBattery: "battery"
   of mkFooter: "footer"
 
-# Parses a user-supplied module name string into its corresponding ModuleKind enum value.
-proc parseModule(name: string; moduleKind: var ModuleKind): bool =
+proc parseModule*(name: string; moduleKind: var ModuleKind): bool =
+  ## Parses a user-supplied module name string into its corresponding ModuleKind enum value.
   case name.strip().toLowerAscii()
   of "title", "user", "header":
     moduleKind = mkTitle
@@ -278,15 +290,15 @@ proc parseModule(name: string; moduleKind: var ModuleKind): bool =
   else:
     false
 
-# Validates and normalizes layout string identifiers against supported layout presets.
-proc normalizeLayoutName(name: string): string =
+proc normalizeLayoutName*(name: string): string =
+  ## Validates and normalizes layout string identifiers against supported layout presets.
   case name.strip().toLowerAscii()
   of "compact": "compact"
   of "minimal": "minimal"
   else: "full"
 
-# Returns the predefined list of module identifiers associated with a given layout preset.
-proc defaultModules(layout: string): seq[ModuleKind] =
+proc defaultModules*(layout: string): seq[ModuleKind] =
+  ## Returns the predefined list of module identifiers associated with a given layout preset.
   case normalizeLayoutName(layout)
   of "minimal":
     @[mkTitle, mkOS, mkHost, mkKernel, mkUptime, mkPackages, mkMemory, mkDisk]
@@ -295,8 +307,8 @@ proc defaultModules(layout: string): seq[ModuleKind] =
   else:
     @[mkTitle, mkOS, mkHost, mkKernel, mkCPU, mkGPU, mkResolution, mkDesktop, mkAudio, mkTerminal, mkShell, mkPackages, mkUptime, mkLocalIP, mkMemory, mkDisk, mkBattery, mkFooter]
 
-# Resolves a validated, deduplicated sequence of active modules from names and layout fallback.
-proc resolveModules(layout: string; names: seq[string]): seq[ModuleKind] =
+proc resolveModules*(layout: string; names: seq[string]): seq[ModuleKind] =
+  ## Resolves a validated, deduplicated sequence of active modules from names and layout fallback.
   if names.len == 0:
     return defaultModules(layout)
 
@@ -310,21 +322,21 @@ proc resolveModules(layout: string; names: seq[string]): seq[ModuleKind] =
   if result.len == 0:
     return defaultModules(layout)
 
-# Converts a sequence of ModuleKind enum values into a sequence of canonical name strings.
-proc modulesAsNames(modules: seq[ModuleKind]): seq[string] =
+proc modulesAsNames*(modules: seq[ModuleKind]): seq[string] =
+  ## Converts a sequence of ModuleKind enum values into a sequence of canonical name strings.
   for moduleKind in modules:
     result.add moduleName(moduleKind)
 
-# Validates and normalizes theme identifier strings to supported theme presets.
-proc normalizeThemeName(name: string): string =
+proc normalizeThemeName*(name: string): string =
+  ## Validates and normalizes theme identifier strings to supported theme presets.
   case name.strip().toLowerAscii()
   of "nord": "nord"
   of "gruvbox": "gruvbox"
   of "plain": "plain"
   else: "catppuccin"
 
-# Generates ANSI escape palettes matching the requested theme configuration.
-proc resolveTheme(name: string): ThemePalette =
+proc resolveTheme*(name: string): ThemePalette =
+  ## Generates ANSI escape palettes matching the requested theme configuration.
   case normalizeThemeName(name)
   of "nord":
     ThemePalette(
@@ -379,15 +391,15 @@ proc resolveTheme(name: string): ThemePalette =
       reset: "\x1b[0m"
     )
 
-# Validates and normalizes icon pack identifier strings to supported icon styles.
-proc normalizeIconPackName(name: string): string =
+proc normalizeIconPackName*(name: string): string =
+  ## Validates and normalizes icon pack identifier strings to supported icon styles.
   case name.strip().toLowerAscii()
   of "ascii": "ascii"
   of "mono": "mono"
   else: "nerd"
 
-# Resolves glyph icon sets according to the specified icon pack profile.
-proc resolveIconPack(name: string): IconPack =
+proc resolveIconPack*(name: string): IconPack =
+  ## Resolves glyph icon sets according to the specified icon pack profile.
   case normalizeIconPackName(name)
   of "ascii":
     IconPack(
@@ -445,7 +457,7 @@ proc resolveIconPack(name: string): IconPack =
       audio: "󰕾",
       shell: "",
       terminal: "",
-      uptime: "",
+      uptime: "",
       localip: "󰩟",
       memory: "󰍛",
       disk: "󰋊",
@@ -453,8 +465,8 @@ proc resolveIconPack(name: string): IconPack =
       swatches: @NerdSwatchIcons
     )
 
-# Aggregates prioritized filesystem paths searched for distribution logo assets.
-proc getLogoSearchDirs(): seq[string] =
+proc getLogoSearchDirs*(): seq[string] =
+  ## Aggregates prioritized filesystem paths searched for distribution logo assets.
   let envDir = getEnv("NYMPH_LOGO_DIR")
   let appDir = getAppDir()
   var seen = initHashSet[string]()
@@ -487,8 +499,8 @@ proc getLogoSearchDirs(): seq[string] =
       seen.incl(sharedDir)
       result.add sharedDir
 
-# Searches registered logo directories for a file matching the target name and extension.
-proc locateLogoFile(name, ext: string): string =
+proc locateLogoFile*(name, ext: string): string =
+  ## Searches registered logo directories for a file matching the target name and extension.
   let fileName = name.toLowerAscii() & ext
   for dir in getLogoSearchDirs():
     let path = dir / fileName
@@ -496,8 +508,8 @@ proc locateLogoFile(name, ext: string): string =
       return path
   ""
 
-# Extracts pixel dimensions from binary PNG header chunks.
-proc parsePngDims(data: string): (int, int) =
+proc parsePngDims*(data: string): (int, int) =
+  ## Extracts pixel dimensions from binary PNG header chunks.
   if data.len < 24:
     return (0, 0)
   if not data.startsWith("\x89PNG\x0d\x0a\x1a\x0a"):
@@ -506,8 +518,8 @@ proc parsePngDims(data: string): (int, int) =
   let h = (ord(data[20]) shl 24) or (ord(data[21]) shl 16) or (ord(data[22]) shl 8) or ord(data[23])
   (w, h)
 
-# Loads raw image bytes and dimensions for a given logo name identifier.
-proc loadLogo(name: string): LogoData =
+proc loadLogo*(name: string): LogoData =
+  ## Loads raw image bytes and dimensions for a given logo name identifier.
   let path = locateLogoFile(name, ".png")
   if path.len == 0:
     return
@@ -524,8 +536,8 @@ proc loadLogo(name: string): LogoData =
   except IOError:
     discard
 
-# Reads an explicit file path as binary PNG or text-based ASCII art logo.
-proc loadLogoFromPath(path: string): LogoData =
+proc loadLogoFromPath*(path: string): LogoData =
+  ## Reads an explicit file path as binary PNG or text-based ASCII art logo.
   let norm = normalizeDir(path)
   if norm.len == 0 or not fileExists(norm):
     return
@@ -562,16 +574,16 @@ when defined(posix):
 
   const ioctlWinSize = culong(0x5413)
 
-# Queries the active terminal window size in physical pixels via POSIX ioctl.
-proc getWindowPixels(): tuple[width, height: int] =
+proc getWindowPixels*(): tuple[width, height: int] =
+  ## Queries the active terminal window size in physical pixels via POSIX ioctl.
   when defined(posix):
     var ws: TermWinSize
     if ioctl(STDOUT_FILENO, ioctlWinSize, addr ws) == 0:
       return (int(ws.ws_xpixel), int(ws.ws_ypixel))
   (0, 0)
 
-# Estimates individual character cell width and height in pixels from terminal metrics.
-proc getCellMetrics(): tuple[cellWidth, cellHeight: float] =
+proc getCellMetrics*(): tuple[cellWidth, cellHeight: float] =
+  ## Estimates individual character cell width and height in pixels from terminal metrics.
   if metricsCached:
     return cachedMetrics
 
@@ -589,8 +601,8 @@ proc getCellMetrics(): tuple[cellWidth, cellHeight: float] =
   metricsCached = true
   cachedMetrics
 
-# Scans search directories and returns all unique available PNG logo identifiers.
-proc collectAvailableLogos(): seq[string] =
+proc collectAvailableLogos*(): seq[string] =
+  ## Scans search directories and returns all unique available PNG logo identifiers.
   var seen = initHashSet[string]()
   for dir in getLogoSearchDirs():
     try:
@@ -606,14 +618,14 @@ proc collectAvailableLogos(): seq[string] =
     except OSError:
       discard
 
-# Strips non-alphanumeric characters to allow fuzzy matching of logo filenames.
-proc sanitizeLogoName(name: string): string =
+proc sanitizeLogoName*(name: string): string =
+  ## Strips non-alphanumeric characters to allow fuzzy matching of logo filenames.
   for ch in name.toLowerAscii():
     if ch.isAlphaNumeric:
       result.add(ch)
 
-# Selects the optimal matching logo filename from a prioritized list of candidate names.
-proc findBestLogoMatch(candidates: seq[string]): string =
+proc findBestLogoMatch*(candidates: seq[string]): string =
+  ## Selects the optimal matching logo filename from a prioritized list of candidate names.
   let available = collectAvailableLogos()
   if available.len == 0:
     return ""
@@ -642,8 +654,8 @@ proc findBestLogoMatch(candidates: seq[string]): string =
 
   available[0]
 
-# Parses command line arguments and populates runtime CLI configuration flags.
-proc parseCliOptions(): CliOptions =
+proc parseCliOptions*(): CliOptions =
+  ## Parses command line arguments and populates runtime CLI configuration flags.
   let params = commandLineParams()
 
   proc pullNext(idx: var int): string =
@@ -693,8 +705,8 @@ proc parseCliOptions(): CliOptions =
       result.modules = parseCsv(pullNext(i))
     inc i
 
-# Inspects system release configurations and returns candidate logo identifiers.
-proc detectLogoName(cliLogo: string): string =
+proc detectLogoName*(cliLogo: string): string =
+  ## Inspects system release configurations and returns candidate logo identifiers.
   var candidates: seq[string] = @[]
 
   if cliLogo.len > 0:
@@ -733,17 +745,15 @@ proc detectLogoName(cliLogo: string): string =
   candidates.add DefaultLogoName
   findBestLogoMatch(candidates)
 
-# Resolves current logged-in username and machine network hostname.
-proc getTitle(): tuple[user, hostname: string] =
+proc getTitle*(): tuple[user, hostname: string] =
+  ## Resolves current logged-in username and machine network hostname.
   var user = getEnv("USER")
   if user.len == 0:
     user = getEnv("LOGNAME")
   if user.len == 0:
     user = "user"
 
-  var hostname = getHostName()
-  if hostname.len == 0:
-    hostname = getEnv("HOSTNAME")
+  var hostname = getEnv("HOSTNAME")
   if hostname.len == 0 and fileExists("/etc/hostname"):
     try: hostname = readFile("/etc/hostname").strip()
     except IOError: discard
@@ -751,12 +761,16 @@ proc getTitle(): tuple[user, hostname: string] =
     try: hostname = readFile("/proc/sys/kernel/hostname").strip()
     except IOError: discard
   if hostname.len == 0:
+    var buf = newString(256)
+    if posix.gethostname(cstring(buf), 256) == 0:
+      hostname = ($cstring(buf)).strip()
+  if hostname.len == 0:
     hostname = "localhost"
 
   (user, hostname)
 
-# Extracts the operating system distribution name from standard release files.
-proc getOS(): string {.inline.} =
+proc getOS*(): string {.inline.} =
+  ## Extracts the operating system distribution name from standard release files.
   var distroname = ""
   if fileExists(osReleasePath):
     for line in lines(osReleasePath):
@@ -769,8 +783,8 @@ proc getOS(): string {.inline.} =
     return "Unknown Linux Distribution"
   distroname
 
-# Retrieves the current running Linux kernel version string.
-proc getKernel(): string {.inline.} =
+proc getKernel*(): string {.inline.} =
+  ## Retrieves the current running Linux kernel version string.
   if fileExists(versionFile):
     let tokens = readFile(versionFile).splitWhitespace()
     if tokens.len >= 3:
@@ -779,8 +793,8 @@ proc getKernel(): string {.inline.} =
       return tokens[^1]
   "Unknown Kernel Version"
 
-# Inspects DMI tables to determine machine hardware model and version.
-proc getHost(): string =
+proc getHost*(): string =
+  ## Inspects DMI tables to determine machine hardware model and version.
   if fileExists("/sys/devices/virtual/dmi/id/product_name"):
     try:
       let name = readFile("/sys/devices/virtual/dmi/id/product_name").strip()
@@ -793,8 +807,8 @@ proc getHost(): string =
       discard
   ""
 
-# Reads and cleans processor model metadata across x86 and ARM architectures.
-proc getCPU(): string =
+proc getCPU*(): string =
+  ## Reads and cleans processor model metadata across x86 and ARM architectures.
   if fileExists("/proc/cpuinfo"):
     try:
       var modelName = ""
@@ -820,8 +834,8 @@ proc getCPU(): string =
       discard
   ""
 
-# Scans PCI devices in sysfs and maps vendor and device identifiers to GPU models.
-proc getGPU(): string =
+proc getGPU*(): string =
+  ## Scans PCI devices in sysfs and maps vendor and device identifiers to GPU models.
   const pciIdsPaths = [
     "/usr/share/hwdata/pci.ids",
     "/usr/share/misc/pci.ids",
@@ -905,8 +919,8 @@ proc getGPU(): string =
 
   gpus.join(", ")
 
-# Queries DRM display connectors for active resolutions and refresh rates.
-proc getResolution(): string =
+proc getResolution*(): string =
+  ## Queries DRM display connectors for active resolutions and refresh rates.
   const drmDir = "/sys/class/drm"
   if not dirExists(drmDir):
     return ""
@@ -934,8 +948,8 @@ proc getResolution(): string =
 
   displays.join(", ")
 
-# Detects active audio sound server daemon from runtime socket files.
-proc getAudio(): string =
+proc getAudio*(): string =
+  ## Detects active audio sound server daemon from runtime socket files.
   let xdgRuntime = getEnv("XDG_RUNTIME_DIR")
   if xdgRuntime.len > 0:
     if fileExists(xdgRuntime / "pipewire-0") or dirExists(xdgRuntime / "pipewire-0"):
@@ -948,20 +962,20 @@ proc getAudio(): string =
 
   ""
 
-# Determines the active local IPv4 routing interface address.
-proc getLocalIP(): string =
+proc getLocalIP*(): string =
+  ## Determines the active local IPv4 routing interface address.
   try:
     let s = posix.socket(posix.AF_INET, posix.SOCK_DGRAM, 0)
     if s.cint >= 0:
       defer: discard posix.close(s)
-      var target: Sockaddr_in
+      var target: posix.Sockaddr_in
       target.sin_family = posix.AF_INET.TSa_Family
-      target.sin_port = nativesockets.htons(53)
+      target.sin_port = posix.htons(53)
       target.sin_addr.s_addr = 0x08080808.uint32
-      if posix.connect(s, cast[ptr SockAddr](addr target), sizeof(target).SockLen) == 0:
-        var localAddr: Sockaddr_in
-        var addrLen = sizeof(localAddr).SockLen
-        if posix.getsockname(s, cast[ptr SockAddr](addr localAddr), addr addrLen) == 0:
+      if posix.connect(s, cast[ptr posix.SockAddr](addr target), posix.SockLen(sizeof(target))) == 0:
+        var localAddr: posix.Sockaddr_in
+        var addrLen = posix.SockLen(sizeof(localAddr))
+        if posix.getsockname(s, cast[ptr posix.SockAddr](addr localAddr), addr addrLen) == 0:
           let ipPtr = posix.inet_ntoa(localAddr.sin_addr)
           if ipPtr != nil:
             let ipStr = $ipPtr
@@ -971,8 +985,8 @@ proc getLocalIP(): string =
     discard
   ""
 
-# Counts immediate child directories within a specified filesystem path.
-proc countDirs(path: string): int =
+proc countDirs*(path: string): int =
+  ## Counts immediate child directories within a specified filesystem path.
   if not dirExists(path):
     return 0
   try:
@@ -982,8 +996,8 @@ proc countDirs(path: string): int =
   except OSError:
     discard
 
-# Traverses two directory levels to count packages in multi-category repositories.
-proc countNestedDirs(path: string): int =
+proc countNestedDirs*(path: string): int =
+  ## Traverses two directory levels to count packages in multi-category repositories.
   if not dirExists(path):
     return 0
   try:
@@ -995,8 +1009,8 @@ proc countNestedDirs(path: string): int =
   except OSError:
     discard
 
-# Parses dpkg status file entries to count installed Debian packages.
-proc countDpkgInstalled(path: string): int =
+proc countDpkgInstalled*(path: string): int =
+  ## Parses dpkg status file entries to count installed Debian packages.
   if not fileExists(path):
     return 0
   var seenPkg = false
@@ -1013,8 +1027,8 @@ proc countDpkgInstalled(path: string): int =
   except IOError:
     return 0
 
-# Counts package database records from Alpine apk installed files.
-proc countApkInstalled(paths: openArray[string]): int =
+proc countApkInstalled*(paths: openArray[string]): int =
+  ## Counts package database records from Alpine apk installed files.
   for path in paths:
     if not fileExists(path):
       continue
@@ -1029,8 +1043,8 @@ proc countApkInstalled(paths: openArray[string]): int =
       return count
   0
 
-# Counts snap application bundle files in snap storage directories.
-proc countSnapInstalled(path: string): int =
+proc countSnapInstalled*(path: string): int =
+  ## Counts snap application bundle files in snap storage directories.
   if not dirExists(path):
     return 0
   try:
@@ -1040,8 +1054,8 @@ proc countSnapInstalled(path: string): int =
   except OSError:
     discard
 
-# Counts RPM packages by inspecting local rpmdb files and databases.
-proc countRpmInstalled(): int =
+proc countRpmInstalled*(): int =
+  ## Counts RPM packages by inspecting local rpmdb files and databases.
   const rpmDbPaths = ["/var/lib/rpm/rpmdb.sqlite", "/usr/lib/sysimage/rpm/rpmdb.sqlite"]
   for path in rpmDbPaths:
     if fileExists(path):
@@ -1053,15 +1067,15 @@ proc countRpmInstalled(): int =
         discard
   0
 
-# Appends a package manager source entry to the aggregated summary record.
-proc addPackageSource(summary: var PackageSummary; name: string; count: int) =
+proc addPackageSource*(summary: var PackageSummary; name: string; count: int) =
+  ## Appends a package manager source entry to the aggregated summary record.
   if count <= 0:
     return
   summary.sources.add PackageSource(name: name, count: count)
   summary.total += count
 
-# Detects installed package counts across all supported system package managers.
-proc detectPackageSummary(): PackageSummary =
+proc detectPackageSummary*(): PackageSummary =
+  ## Detects installed package counts across all supported system package managers.
   addPackageSource(result, "pacman", countDirs("/var/lib/pacman/local"))
   addPackageSource(result, "dpkg", countDpkgInstalled("/var/lib/dpkg/status"))
   addPackageSource(result, "apk", countApkInstalled(["/lib/apk/db/installed", "/var/lib/apk/db/installed"]))
@@ -1090,8 +1104,8 @@ proc detectPackageSummary(): PackageSummary =
   addPackageSource(result, "homebrew", brewCount)
   addPackageSource(result, "rpm", countRpmInstalled())
 
-# Formats package manager metrics into human-readable summary text.
-proc formatPackageSummary(summary: PackageSummary): string =
+proc formatPackageSummary*(summary: PackageSummary): string =
+  ## Formats package manager metrics into human-readable summary text.
   if summary.total <= 0:
     return "0"
   if summary.sources.len == 1:
@@ -1103,8 +1117,8 @@ proc formatPackageSummary(summary: PackageSummary): string =
   let details = parts.join(" + ")
   fmt"{summary.total} ({details})"
 
-# Encodes package manager inspection metrics into a JSON data structure.
-proc packageSummaryJson(summary: PackageSummary): JsonNode =
+proc packageSummaryJson*(summary: PackageSummary): JsonNode =
+  ## Encodes package manager inspection metrics into a JSON data structure.
   var sourcesNode = newJObject()
   for source in summary.sources:
     sourcesNode[source.name] = %source.count
@@ -1113,8 +1127,8 @@ proc packageSummaryJson(summary: PackageSummary): JsonNode =
   result["total"] = %summary.total
   result["sources"] = sourcesNode
 
-# Resolves the active login or interactive shell name.
-proc getShell(): string {.inline.} =
+proc getShell*(): string {.inline.} =
+  ## Resolves the active login or interactive shell name.
   let shellEnv = getEnv("SHELL")
   if shellEnv.len > 0:
     let basename = shellEnv.splitPath().tail
@@ -1134,8 +1148,8 @@ proc getShell(): string {.inline.} =
 
   "Unknown"
 
-# Resolves the current terminal emulator identifier from environment variables.
-proc getTerminal(): string =
+proc getTerminal*(): string =
+  ## Resolves the current terminal emulator identifier from environment variables.
   let termProg = getEnv("TERM_PROGRAM")
   if termProg.len > 0: return termProg
 
@@ -1151,8 +1165,8 @@ proc getTerminal(): string =
 
   "Unknown"
 
-# Inspects Linux sysfs power supplies to gather aggregate battery charge and status.
-proc getBattery(overrideBat = ""): BatteryInfo =
+proc getBattery*(overrideBat = ""): BatteryInfo =
+  ## Inspects Linux sysfs power supplies to gather aggregate battery charge and status.
   var batInput = overrideBat
   if batInput.len == 0:
     batInput = getEnv("NYMPH_BATTERY")
@@ -1222,8 +1236,8 @@ proc getBattery(overrideBat = ""): BatteryInfo =
     let intPct = int(round(result.percent))
     result.text = if anyCharging: $intPct & "% (Charging)" else: $intPct & "%"
 
-# Reads root filesystem storage statistics using POSIX statvfs.
-proc getDisk(): DiskInfo =
+proc getDisk*(): DiskInfo =
+  ## Reads root filesystem storage statistics using POSIX statvfs.
   var stats: Statvfs
   if statvfs("/", stats) == 0:
     let total = stats.f_blocks * stats.f_frsize
@@ -1236,8 +1250,8 @@ proc getDisk(): DiskInfo =
   else:
     result.text = "Unknown disk"
 
-# Reads and formats system uptime durations into day and timestamp components.
-proc getUptime(): string =
+proc getUptime*(): string =
+  ## Reads and formats system uptime durations into day and timestamp components.
   var uptime: float
   try:
     let parts = readFile(uptimeFile).splitWhitespace()
@@ -1256,8 +1270,8 @@ proc getUptime(): string =
 
   fmt"{uptimeDays} days, {hours:02d}:{minutes:02d}:{seconds:02d}"
 
-# Reads system memory consumption metrics from /proc/meminfo with fallback calculations.
-proc getMemory(): MemoryInfo =
+proc getMemory*(): MemoryInfo =
+  ## Reads system memory consumption metrics from /proc/meminfo with fallback calculations.
   var memTotal, memAvailable, memFree, memBuffers, memCached, memSReclaimable, memShmem: int
 
   proc parseMemField(value: string): int =
@@ -1309,8 +1323,8 @@ proc getMemory(): MemoryInfo =
   else:
     result.text = intToStr(usedMem div mibDivisor) & "MiB"
 
-# Resolves the active desktop environment or window manager from environment state.
-proc getDE(): string =
+proc getDE*(): string =
+  ## Resolves the active desktop environment or window manager from environment state.
   result = getEnv("XDG_CURRENT_DESKTOP")
   if result == "":
     result = getEnv("DESKTOP_SESSION")
@@ -1323,8 +1337,8 @@ proc getDE(): string =
   if result == "":
     result = "Unknown"
 
-# Queries all hardware, software, and runtime metrics to build a complete system snapshot.
-proc collectSnapshot(overrideBat = ""): SystemSnapshot =
+proc collectSnapshot*(overrideBat = ""): SystemSnapshot =
+  ## Queries all hardware, software, and runtime metrics to build a complete system snapshot.
   let (u, h) = getTitle()
   result.user = u
   result.hostname = h
@@ -1345,8 +1359,8 @@ proc collectSnapshot(overrideBat = ""): SystemSnapshot =
   result.battery = getBattery(overrideBat)
   result.packages = detectPackageSummary()
 
-# Constructs the colored footer palette line with configured swatch symbols.
-proc footerLine(): string =
+proc footerLine*(): string =
+  ## Constructs the colored footer palette line with configured swatch symbols.
   let palette = [activePalette.rosewater, activePalette.mauve, activePalette.pink, activePalette.maroon, activePalette.sky, activePalette.green, activePalette.lavender]
   var tokens: seq[string] = @[]
 
@@ -1372,8 +1386,8 @@ proc footerLine(): string =
   if not disableColor and activePalette.reset.len > 0:
     result.add activePalette.reset
 
-# Renders a progress level bar using configured glyph or ASCII cell characters.
-proc levelBar(percent: float; useSquares: bool; width = 10; reverseColor = false): string =
+proc levelBar*(percent: float; useSquares: bool; width = 10; reverseColor = false): string =
+  ## Renders a progress level bar using configured glyph or ASCII cell characters.
   let filled = int(round(percent / 100.0 * width.float))
   let fillColor = if reverseColor:
                     if percent <= 20.0: activePalette.maroon elif percent <= 60.0: activePalette.yellow else: activePalette.green
@@ -1407,20 +1421,20 @@ proc levelBar(percent: float; useSquares: bool; width = 10; reverseColor = false
   result.add closeCap & " "
   result.add intToStr(int(round(percent))) & "%"
 
-# Formats memory usage metrics with an inline progress visual bar.
-proc formatMemory(memory: MemoryInfo): string =
+proc formatMemory*(memory: MemoryInfo): string =
+  ## Formats memory usage metrics with an inline progress visual bar.
   if not memory.known:
     return memory.text
   levelBar(memory.percent, false) & " " & memory.text
 
-# Formats filesystem disk metrics with an inline square progress bar.
-proc formatDisk(disk: DiskInfo): string =
+proc formatDisk*(disk: DiskInfo): string =
+  ## Formats filesystem disk metrics with an inline square progress bar.
   if not disk.known:
     return disk.text
   levelBar(disk.percent, true) & " " & disk.text
 
-# Formats battery metrics with status indicators and charging annotations.
-proc formatBattery(battery: BatteryInfo): string =
+proc formatBattery*(battery: BatteryInfo): string =
+  ## Formats battery metrics with status indicators and charging annotations.
   if not battery.known:
     return battery.text
   let bar = levelBar(battery.percent, true, 10, true)
@@ -1428,22 +1442,22 @@ proc formatBattery(battery: BatteryInfo): string =
     return bar & " (Charging)"
   return bar
 
-# Encodes memory metrics into a structured JSON dictionary node.
-proc memoryInfoJson(memory: MemoryInfo): JsonNode =
+proc memoryInfoJson*(memory: MemoryInfo): JsonNode =
+  ## Encodes memory metrics into a structured JSON dictionary node.
   result = newJObject()
   result["known"] = %memory.known
   result["used_kib"] = %memory.usedKiB
   result["total_kib"] = %memory.totalKiB
   result["percent"] = %memory.percent
 
-# Builds an aligned statistics line with palette styling, glyphs, and labels.
-proc statLine(accent, iconValue, label, value: string): string =
+proc statLine*(accent, iconValue, label, value: string): string =
+  ## Builds an aligned statistics line with palette styling, glyphs, and labels.
   const labelWidth = 6
   let valuePad = repeat(" ", max(2, labelWidth - label.len + 2))
   fmt"{accent}{iconValue}  {activePalette.yellow}{activePalette.bold}{label}:{activePalette.reset}{valuePad}{value}"
 
-# Generates rendered text stat lines for all requested active modules.
-proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[string] =
+proc buildStatsEntries*(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[string] =
+  ## Generates rendered text stat lines for all requested active modules.
   for moduleKind in modules:
     var line = ""
     case moduleKind
@@ -1507,8 +1521,8 @@ proc buildStatsEntries(snapshot: SystemSnapshot; modules: seq[ModuleKind]): seq[
     if line.len > 0:
       result.add line
 
-# Converts image dimensions to terminal column and row cell counts while preserving aspect ratio.
-proc computeLogoCells(logo: LogoData): tuple[cols, rows: int] =
+proc computeLogoCells*(logo: LogoData): tuple[cols, rows: int] =
+  ## Converts image dimensions to terminal column and row cell counts while preserving aspect ratio.
   let metrics = getCellMetrics()
   let cw = max(1.0, metrics.cellWidth)
   let ch = max(1.0, metrics.cellHeight)
@@ -1533,8 +1547,8 @@ proc computeLogoCells(logo: LogoData): tuple[cols, rows: int] =
 
   (cols, rows)
 
-# Derives the horizontal column offset for aligning statistics text alongside logos.
-proc computeStatsOffset(): int =
+proc computeStatsOffset*(): int =
+  ## Derives the horizontal column offset for aligning statistics text alongside logos.
   let metrics = getCellMetrics()
   let cw = max(1.0, metrics.cellWidth)
   let colsFromLogo = int(ceil(appConfig.maxLogoWidth.float / cw)) + 2
@@ -1542,8 +1556,8 @@ proc computeStatsOffset(): int =
   let maxCols = max(1, terminalWidth())
   min(base, maxCols div 2 + 2)
 
-# Strips ANSI escape code sequences from text for clean monochrome presentation.
-proc stripAnsi(text: string): string =
+proc stripAnsi*(text: string): string =
+  ## Strips ANSI escape code sequences from text for clean monochrome presentation.
   proc isAnsiFinalByte(ch: char): bool {.inline.} =
     ch >= '@' and ch <= '~'
 
@@ -1579,8 +1593,8 @@ proc stripAnsi(text: string): string =
     result.add(text[i])
     inc i
 
-# Resolves logo asset binary data from command line overrides, configurations, or auto-detection.
-proc resolveLogo(logoOverride: string): tuple[logo: LogoData, name: string, path: string] =
+proc resolveLogo*(logoOverride: string): tuple[logo: LogoData, name: string, path: string] =
+  ## Resolves logo asset binary data from command line overrides, configurations, or auto-detection.
   var overridePath = ""
   if logoOverride.len > 0:
     let candidatePath = normalizeDir(logoOverride)
@@ -1615,8 +1629,8 @@ proc resolveLogo(logoOverride: string): tuple[logo: LogoData, name: string, path
   if result.name.len == 0:
     result.name = DefaultLogoName
 
-# Displays command line usage instructions and flag options.
-proc printHelp() =
+proc printHelp*() =
+  ## Displays command line usage instructions and flag options.
   echo "Nymph - lightweight system summary"
   echo ""
   echo "Usage: nymph [options]"
@@ -1633,16 +1647,16 @@ proc printHelp() =
   echo "  --list-icon-packs         List built-in icon packs"
   echo "  -h, --help                Show this help"
 
-# Lists built-in theme presets available to the user.
-proc printThemeList() =
+proc printThemeList*() =
+  ## Lists built-in theme presets available to the user.
   echo "Themes: catppuccin, nord, gruvbox, plain"
 
-# Lists built-in icon pack presets available to the user.
-proc printIconPackList() =
+proc printIconPackList*() =
+  ## Lists built-in icon pack presets available to the user.
   echo "Icon packs: nerd, ascii, mono"
 
-# Prints detailed system, configuration, and terminal diagnostics for debugging.
-proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; proto: GraphicsProtocol; jsonEnabled: bool) =
+proc doctorOutput*(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; proto: GraphicsProtocol; jsonEnabled: bool) =
+  ## Prints detailed system, configuration, and terminal diagnostics for debugging.
   echo "Nymph doctor"
   echo "config.path: " & (if appConfig.loadedConfigPath.len > 0: appConfig.loadedConfigPath else: "(none)")
   echo "config.theme: " & appConfig.theme
@@ -1669,8 +1683,8 @@ proc doctorOutput(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: 
     echo "  - " & dir
   echo "packages: " & formatPackageSummary(snapshot.packages)
 
-# Outputs gathered metrics as formatted JSON for external scripting integration.
-proc outputJson(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; proto: GraphicsProtocol) =
+proc outputJson*(snapshot: SystemSnapshot; modules: seq[ModuleKind]; logoInfo: tuple[logo: LogoData, name: string, path: string]; proto: GraphicsProtocol) =
+  ## Outputs gathered metrics as formatted JSON for external scripting integration.
   var root = newJObject()
   root["user"] = %snapshot.user
   root["hostname"] = %snapshot.hostname

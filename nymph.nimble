@@ -11,3 +11,6 @@ requires "nim >= 2.0.0"
 # Build tasks
 task release, "Build the application with release flags":
   exec "nim c -d:release -d:danger --passL:'-s' --opt:size -o:./bin/nymph src/nymph.nim"
+
+task docgen, "Generate HTML documentation for Nymph":
+  exec "nim doc --project --outdir:docs src/nymph.nim"

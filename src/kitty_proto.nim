@@ -1,15 +1,17 @@
+## Terminal graphics protocol detection and image streaming for Kitty and iTerm2 protocols.
 import std/[os, strutils, base64]
 
 type
   GraphicsProtocol* = enum
+    ## Supported terminal graphics protocols.
     gpNone,
     gpKitty,
     gpIterm
 
 const kittyChunkSize = 4096
 
-# Detects whether the active terminal emulator supports the Kitty graphics protocol.
 proc supportsKittyGraphics*(): bool =
+  ## Detects whether the active terminal emulator supports the Kitty graphics protocol.
   const candidates = ["kitty", "wezterm", "ghostty", "konsole", "foot", "rio"]
   let termVars = [getEnv("TERM"), getEnv("TERM_PROGRAM"), getEnv("TERMINAL_EMULATOR")]
   for v in termVars:
@@ -23,8 +25,8 @@ proc supportsKittyGraphics*(): bool =
   if getEnv("FOOT_TERMINAL").len > 0: return true
   false
 
-# Detects whether the active terminal emulator supports the iTerm2 inline images protocol.
 proc supportsItermGraphics*(): bool =
+  ## Detects whether the active terminal emulator supports the iTerm2 inline images protocol.
   let termProg = getEnv("TERM_PROGRAM").toLowerAscii()
   if termProg in ["iterm.app", "wezterm", "vscode", "tabby", "contour"]:
     return true
@@ -34,16 +36,16 @@ proc supportsItermGraphics*(): bool =
     return true
   false
 
-# Detects the highest priority terminal graphics protocol available in the current session.
 proc detectGraphicsProtocol*(): GraphicsProtocol =
+  ## Detects the highest priority terminal graphics protocol available in the current session.
   if supportsKittyGraphics():
     return gpKitty
   if supportsItermGraphics():
     return gpIterm
   gpNone
 
-# Transmits image payload bytes using Kitty graphics escape sequences.
 proc displayKittyGraphics*(logoBytes: string; columns, rows: int) =
+  ## Transmits image payload bytes using Kitty graphics escape sequences.
   if logoBytes.len == 0: return
   let encoded = encode(logoBytes)
   var offset = 0
@@ -74,8 +76,8 @@ proc displayKittyGraphics*(logoBytes: string; columns, rows: int) =
     offset = chunkEnd
     first = false
 
-# Transmits image payload bytes using iTerm2 OSC 1337 inline image escape sequences.
 proc displayItermGraphics*(logoBytes: string; columns, rows: int) =
+  ## Transmits image payload bytes using iTerm2 OSC 1337 inline image escape sequences.
   if logoBytes.len == 0: return
   let encoded = encode(logoBytes)
   var buf = "\x1b]1337;File=inline=1"
